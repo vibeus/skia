@@ -1143,10 +1143,8 @@ group("modules") {
     "modules/particles",
     "modules/skottie",
     "modules/skshaper",
+    "modules/skparagraph",
   ]
-  if (target_cpu == "wasm") {
-    deps += [ "modules/skparagraph" ]
-  }
 }
 
 # Targets guarded by skia_enable_tools may use //third_party freely.
