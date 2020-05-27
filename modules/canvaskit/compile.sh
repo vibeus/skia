@@ -158,7 +158,7 @@ fi
 
 GN_FONT="skia_enable_fontmgr_empty=false skia_enable_fontmgr_custom_empty=false"
 FONT_CFLAGS=""
-BUILTIN_FONT="$BASE_DIR/fonts/NotoMono-Regular.ttf.cpp"
+BUILTIN_FONT="$BASE_DIR/fonts/FiraSans-Regular.ttf.cpp"
 FONT_JS="--pre-js $BASE_DIR/font.js"
 if [[ $@ == *no_font* ]]; then
   echo "Omitting the built-in font(s), font manager and all code dealing with fonts"
@@ -174,8 +174,8 @@ else
   # Generate the font's binary file (which is covered by .gitignore)
   python tools/embed_resources.py \
       --name SK_EMBEDDED_FONTS \
-      --input $BASE_DIR/fonts/NotoMono-Regular.ttf \
-      --output $BASE_DIR/fonts/NotoMono-Regular.ttf.cpp \
+      --input $BASE_DIR/fonts/FiraSans-Regular.ttf \
+      --output $BASE_DIR/fonts/FiraSans-Regular.ttf.cpp \
       --align 4
 fi
 
