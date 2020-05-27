@@ -55,12 +55,12 @@ WASM_GPU="-lGL -DSK_SUPPORT_GPU=1 -DSK_GL -DCK_ENABLE_WEBGL \
 GM_LIB="$BUILD_DIR/libgm_wasm.a"
 
 GN_FONT="skia_enable_fontmgr_custom_directory=false "
-BUILTIN_FONT="$BASE_DIR/fonts/NotoMono-Regular.ttf.cpp"
+BUILTIN_FONT="$BASE_DIR/fonts/FiraSans-Regular.ttf.cpp"
 # Generate the font's binary file (which is covered by .gitignore)
 python tools/embed_resources.py \
       --name SK_EMBEDDED_FONTS \
-      --input $BASE_DIR/fonts/NotoMono-Regular.ttf \
-      --output $BASE_DIR/fonts/NotoMono-Regular.ttf.cpp \
+      --input $BASE_DIR/fonts/FiraSans-Regular.ttf \
+      --output $BASE_DIR/fonts/FiraSans-Regular.ttf.cpp \
       --align 4
 GN_FONT+="skia_enable_fontmgr_custom_embedded=true skia_enable_fontmgr_custom_empty=false"
 
