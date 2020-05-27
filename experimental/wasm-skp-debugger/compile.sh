@@ -40,12 +40,12 @@ mkdir -p $BUILD_DIR
 # we get a fresh build.
 rm -f $BUILD_DIR/*.a
 
-BUILTIN_FONT="$BASE_DIR/fonts/NotoMono-Regular.ttf.cpp"
+BUILTIN_FONT="$BASE_DIR/fonts/FiraSans-Regular.ttf.cpp"
 # Generate the font's binary file (which is covered by .gitignore)
 python tools/embed_resources.py \
     --name SK_EMBEDDED_FONTS \
-    --input $BASE_DIR/fonts/NotoMono-Regular.ttf \
-    --output $BASE_DIR/fonts/NotoMono-Regular.ttf.cpp \
+    --input $BASE_DIR/fonts/FiraSans-Regular.ttf \
+    --output $BASE_DIR/fonts/FiraSans-Regular.ttf.cpp \
     --align 4
 
 GN_GPU_FLAGS="\"-DSK_DISABLE_LEGACY_SHADERCONTEXT\","
@@ -138,7 +138,7 @@ EMCC_DEBUG=1 ${EMCXX} \
     --pre-js $BASE_DIR/helper.js \
     --bind \
     --no-entry \
-    $BASE_DIR/fonts/NotoMono-Regular.ttf.cpp \
+    $BASE_DIR/fonts/FiraSans-Regular.ttf.cpp \
     $BASE_DIR/debugger_bindings.cpp \
     $BUILD_DIR/libdebugcanvas.a \
     $BUILD_DIR/libskia.a \
