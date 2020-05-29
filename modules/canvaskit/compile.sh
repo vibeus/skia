@@ -358,6 +358,7 @@ ${EMCXX} \
     $SHAPER_LIB \
     $BUILD_DIR/libskia.a \
     $BUILTIN_FONT \
+    --no-entry \
     -s ALLOW_MEMORY_GROWTH=1 \
     -s EXPORT_NAME="CanvasKitInit" \
     -s FORCE_FILESYSTEM=0 \
@@ -365,7 +366,6 @@ ${EMCXX} \
     -s MODULARIZE=1 \
     -s NO_EXIT_RUNTIME=1 \
     -s STRICT=1 \
-    -s TOTAL_MEMORY=128MB \
     -s WARN_UNALIGNED=1 \
     -s WASM=1 \
     -o $BUILD_DIR/canvaskit.js
