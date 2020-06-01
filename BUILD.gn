@@ -295,7 +295,7 @@ optional("fontmgr_android") {
 }
 
 optional("fontmgr_custom") {
-  enabled = skia_enable_fontmgr_custom
+  enabled = skia_enable_fontmgr_custom || is_linux
 
   deps = [ ":typeface_freetype" ]
   sources = [
