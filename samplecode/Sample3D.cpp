@@ -261,7 +261,7 @@ public:
     virtual void drawContent(SkCanvas* canvas, SkColor, int index, bool drawFront) = 0;
 
     void onDrawContent(SkCanvas* canvas) override {
-        if (!canvas->getGrContext() && !(fFlags & kCanRunOnCPU)) {
+        if (!canvas->recordingContext() && !(fFlags & kCanRunOnCPU)) {
             return;
         }
 
@@ -356,20 +356,20 @@ class SampleBump3D : public SampleCubeBase {
     SkRRect                fRR;
 
 public:
-    SampleBump3D() : SampleCubeBase(kShowLightDome) {}
+    SampleBump3D() : SampleCubeBase(Flags(kCanRunOnCPU | kShowLightDome)) {}
 
     SkString name() override { return SkString("bump3d"); }
 
     void onOnceBeforeDraw() override {
         fRR = SkRRect::MakeRectXY({20, 20, 380, 380}, 50, 50);
         auto img = GetResourceAsImage("images/brickwork-texture.jpg");
-        fImgShader = img->makeShader(SkMatrix::MakeScale(2, 2));
+        fImgShader = img->makeShader(SkMatrix::Scale(2, 2));
         img = GetResourceAsImage("images/brickwork_normal-map.jpg");
-        fBmpShader = img->makeShader(SkMatrix::MakeScale(2, 2));
+        fBmpShader = img->makeShader(SkMatrix::Scale(2, 2));
 
         const char code[] = R"(
-            in fragmentProcessor color_map;
-            in fragmentProcessor normal_map;
+            in shader color_map;
+            in shader normal_map;
 
             layout (marker=local_to_world)          uniform float4x4 localToWorld;
             layout (marker=normals(local_to_world)) uniform float4x4 localToWorldAdjInv;
@@ -408,7 +408,7 @@ public:
         }
 
         SkRuntimeShaderBuilder builder(fEffect);
-        builder.input("lightPos") = fLight.computeWorldPos(fSphere);
+        builder.uniform("lightPos") = fLight.computeWorldPos(fSphere);
         // localToWorld matrices are automatically populated, via layout(marker)
 
         builder.child("color_map")  = fImgShader;
@@ -493,7 +493,7 @@ public:
         }
 
         SkRuntimeShaderBuilder builder(fEffect);
-        builder.input("lightPos") = fLight.computeWorldPos(fSphere);
+        builder.uniform("lightPos") = fLight.computeWorldPos(fSphere);
 
         SkPaint paint;
         paint.setColor(color);

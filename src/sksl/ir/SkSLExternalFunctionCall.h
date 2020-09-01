@@ -18,9 +18,11 @@ namespace SkSL {
  * An external function invocation.
  */
 struct ExternalFunctionCall : public Expression {
-    ExternalFunctionCall(int offset, const Type& type, ExternalValue* function,
+    static constexpr Kind kExpressionKind = kExternalFunctionCall_Kind;
+
+    ExternalFunctionCall(int offset, const Type& type, const ExternalValue* function,
                          std::vector<std::unique_ptr<Expression>> arguments)
-    : INHERITED(offset, kExternalFunctionCall_Kind, type)
+    : INHERITED(offset, kExpressionKind, type)
     , fFunction(function)
     , fArguments(std::move(arguments)) {}
 
@@ -34,6 +36,14 @@ struct ExternalFunctionCall : public Expression {
             }
         }
         return false;
+    }
+
+    int nodeCount() const override {
+        int result = 1;
+        for (const auto& a : fArguments) {
+            result += a->nodeCount();
+        }
+        return result;
     }
 
     std::unique_ptr<Expression> clone() const override {
@@ -59,12 +69,12 @@ struct ExternalFunctionCall : public Expression {
         return result;
     }
 
-    ExternalValue* fFunction;
+    const ExternalValue* fFunction;
     std::vector<std::unique_ptr<Expression>> fArguments;
 
     typedef Expression INHERITED;
 };
 
-} // namespace
+}  // namespace SkSL
 
 #endif

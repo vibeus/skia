@@ -10,7 +10,7 @@
 
 #include "include/private/SkTDArray.h"
 #include "src/gpu/GrShaderVar.h"
-#include "src/gpu/GrTAllocator.h"
+#include "src/gpu/GrTBlockList.h"
 #include "src/gpu/glsl/GrGLSLUniformHandler.h"
 #include "src/sksl/SkSLString.h"
 
@@ -84,6 +84,13 @@ public:
 
     void declareGlobal(const GrShaderVar&);
 
+    // Generates a unique variable name for holding the result of a temporary expression when it's
+    // not reasonable to just add a new block for scoping. Does not declare anything.
+    SkString newTmpVarName(const char* suffix) {
+        int tmpIdx = fTmpVariableCounter++;
+        return SkStringPrintf("_tmp_%d_%s", tmpIdx, suffix);
+    }
+
     /**
     * Called by GrGLSLProcessors to add code to one of the shaders.
     */
@@ -146,7 +153,7 @@ public:
     };
 
 protected:
-    typedef GrTAllocator<GrShaderVar> VarArray;
+    typedef GrTBlockList<GrShaderVar> VarArray;
     void appendDecls(const VarArray& vars, SkString* out) const;
 
     /**
@@ -237,6 +244,9 @@ protected:
     SkSTArray<1, SkString> fLayoutParams[kLastInterfaceQualifier + 1];
     int fCodeIndex;
     bool fFinalized;
+
+    // Counter for generating unique scratch variable names in a shader.
+    int fTmpVariableCounter;
 
     friend class GrCCCoverageProcessor; // to access code().
     friend class GrGLSLProgramBuilder;

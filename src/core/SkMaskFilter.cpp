@@ -13,7 +13,6 @@
 #include "src/core/SkBlitter.h"
 #include "src/core/SkBlurPriv.h"
 #include "src/core/SkCachedData.h"
-#include "src/core/SkCoverageModePriv.h"
 #include "src/core/SkDraw.h"
 #include "src/core/SkPathPriv.h"
 #include "src/core/SkRasterClip.h"
@@ -23,7 +22,6 @@
 #if SK_SUPPORT_GPU
 #include "src/gpu/GrFragmentProcessor.h"
 #include "src/gpu/GrTextureProxy.h"
-#include "src/gpu/effects/GrXfermodeFragmentProcessor.h"
 #include "src/gpu/text/GrSDFMaskFilter.h"
 #endif
 
@@ -255,7 +253,7 @@ bool SkMaskFilterBase::filterPath(const SkPath& devPath, const SkMatrix& matrix,
 
             case kUnimplemented_FilterReturn:
                 SkASSERT(nullptr == patch.fMask.fImage);
-                // fall through
+                // fall out
                 break;
         }
     }
@@ -335,7 +333,7 @@ bool SkMaskFilterBase::canFilterMaskGPU(const GrStyledShape& shape,
 bool SkMaskFilterBase::directFilterMaskGPU(GrRecordingContext*,
                                            GrRenderTargetContext*,
                                            GrPaint&&,
-                                           const GrClip&,
+                                           const GrClip*,
                                            const SkMatrix& viewMatrix,
                                            const GrStyledShape&) const {
     return false;

@@ -47,8 +47,16 @@ elif [[ $@ == *profiling* ]]; then
   echo "Building a build for profiling"
   RELEASE_CONF+=" --profiling-funcs --closure 0"
   BUILD_DIR=${BUILD_DIR:="out/canvaskit_wasm_profile"}
+elif [[ $@ == *simd* ]]; then
+  echo "Building with SIMD operations"
+  BUILD_DIR=${BUILD_DIR:="out/canvaskit_wasm_experimental_simd"}
 else
   BUILD_DIR=${BUILD_DIR:="out/canvaskit_wasm"}
+fi
+
+if [[ $@ == *simd* ]]; then
+  RELEASE_CONF+=" -msimd128"
+  EXTRA_CFLAGS+=" \"-msimd128\""
 fi
 
 mkdir -p $BUILD_DIR
@@ -71,10 +79,16 @@ fi
 SKP_JS="--pre-js $BASE_DIR/skp.js"
 GN_SKP_FLAGS=""
 WASM_SKP="-DSK_SERIALIZE_SKP"
-if [[ $@ == *no_skp* ]]; then
-  GN_SKP_FLAGS="\"-DSK_DISABLE_READBUFFER\","
-  WASM_SKP="-DSK_DISABLE_READBUFFER"
+if [[ $@ == *no_skp_serialization* ]]; then
+  # This saves about 20kb compressed.
   SKP_JS=""
+  WASM_SKP=""
+  GN_SKP_FLAGS="\"-DSK_DISABLE_EFFECT_DESERIALIZATION\","
+fi
+if [[ $@ == *no_effects_deserialization* ]]; then
+  # This saves about 60kb compressed.
+  echo "disabling effects deserialization"
+  GN_SKP_FLAGS="\"-DSK_DISABLE_EFFECT_DESERIALIZATION\","
 fi
 
 SKOTTIE_JS="--pre-js $BASE_DIR/skottie.js"
@@ -90,11 +104,13 @@ if [[ $@ == *no_skottie* ]]; then
   SKOTTIE_BINDINGS=""
 fi
 
+GN_VIEWER="skia_use_expat=false skia_enable_ccpr=false"
 VIEWER_BINDINGS=""
 VIEWER_LIB=""
 
 if [[ $@ == *viewer* ]]; then
   echo "Including viewer"
+  GN_VIEWER="skia_use_expat=true skia_enable_ccpr=true"
   VIEWER_BINDINGS="$BASE_DIR/viewer_bindings.cpp"
   VIEWER_LIB="$BUILD_DIR/libviewer_wasm.a"
   IS_OFFICIAL_BUILD="false"
@@ -128,6 +144,7 @@ fi
 WASM_PATHOPS="-DSK_INCLUDE_PATHOPS"
 PATHOPS_JS="--pre-js $BASE_DIR/pathops.js"
 if [[ $@ == *no_pathops* ]] ; then
+  # This saves about 2kb compressed.
   WASM_PATHOPS=""
   PATHOPS_JS=""
 fi
@@ -156,20 +173,18 @@ if [[ $@ == *no_canvas* ]]; then
   HTML_CANVAS_API=""
 fi
 
-GN_FONT="skia_enable_fontmgr_empty=false skia_enable_fontmgr_custom_empty=false"
+GN_FONT="skia_enable_fontmgr_custom_directory=false "
 FONT_CFLAGS=""
-BUILTIN_FONT="$BASE_DIR/fonts/FiraSans-Regular.ttf.cpp"
+BUILTIN_FONT=""
 FONT_JS="--pre-js $BASE_DIR/font.js"
 if [[ $@ == *no_font* ]]; then
   echo "Omitting the built-in font(s), font manager and all code dealing with fonts"
-  BUILTIN_FONT=""
   FONT_CFLAGS="-DSK_NO_FONTS"
   FONT_JS=""
-  GN_FONT="skia_enable_fontmgr_empty=true skia_enable_fontmgr_custom_empty=false"
+  GN_FONT+="skia_enable_fontmgr_custom_embedded=false skia_enable_fontmgr_custom_empty=false"
 elif [[ $@ == *no_embedded_font* ]]; then
   echo "Omitting the built-in font(s)"
-  BUILTIN_FONT=""
-  GN_FONT="skia_enable_fontmgr_empty=false skia_enable_fontmgr_custom_empty=true"
+  GN_FONT+="skia_enable_fontmgr_custom_embedded=false skia_enable_fontmgr_custom_empty=true"
 else
   # Generate the font's binary file (which is covered by .gitignore)
   python tools/embed_resources.py \
@@ -177,10 +192,12 @@ else
       --input $BASE_DIR/fonts/FiraSans-Regular.ttf \
       --output $BASE_DIR/fonts/FiraSans-Regular.ttf.cpp \
       --align 4
+  BUILTIN_FONT="$BASE_DIR/fonts/FiraSans-Regular.ttf.cpp"
+  GN_FONT+="skia_enable_fontmgr_custom_embedded=true skia_enable_fontmgr_custom_empty=false"
 fi
 
 if [[ $@ == *no_alias_font* ]]; then
-EXTRA_CFLAGS+=" -DCANVASKIT_NO_ALIAS_FONT"
+EXTRA_CFLAGS+=" \"-DCANVASKIT_NO_ALIAS_FONT\""
 FONT_CFLAGS+=" -DCANVASKIT_NO_ALIAS_FONT"
 fi
 
@@ -253,7 +270,6 @@ echo "Compiling bitcode"
   extra_cflags_cc=[\"-frtti\"] \
   extra_cflags=[\"-s\", \"WARN_UNALIGNED=1\", \"-s\", \"MAIN_MODULE=1\",
     \"-DSKNX_NO_SIMD\", \"-DSK_DISABLE_AAA\",
-    \"-DSK_DISABLE_EFFECT_DESERIALIZATION\",
     \"-DSK_FORCE_8_BYTE_ALIGNMENT\",
     ${GN_GPU_FLAGS}
     ${GN_SKP_FLAGS}
@@ -268,7 +284,6 @@ echo "Compiling bitcode"
   skia_use_angle=false \
   skia_use_dng_sdk=false \
   skia_use_egl=true \
-  skia_use_expat=false \
   skia_use_fontconfig=false \
   skia_use_freetype=true \
   skia_use_libheif=false \
@@ -293,9 +308,9 @@ echo "Compiling bitcode"
   ${GN_GPU} \
   ${GN_FONT} \
   ${GN_PARTICLES} \
+  ${GN_VIEWER} \
   \
   skia_enable_skshaper=true \
-  skia_enable_ccpr=false \
   skia_enable_nvpr=false \
   skia_enable_skparagraph=true \
   skia_enable_pdf=false"
@@ -331,6 +346,7 @@ ${EMCXX} \
     $FONT_CFLAGS \
     -std=c++17 \
     --bind \
+    --no-entry \
     --pre-js $BASE_DIR/preamble.js \
     --pre-js $BASE_DIR/helper.js \
     --pre-js $BASE_DIR/interface.js \
@@ -343,7 +359,6 @@ ${EMCXX} \
     $RT_SHADER_JS \
     $HTML_CANVAS_API \
     --pre-js $BASE_DIR/postamble.js \
-    --post-js $BASE_DIR/ready.js \
     $BASE_DIR/canvaskit_bindings.cpp \
     $PARTICLES_BINDINGS \
     $SKOTTIE_BINDINGS \

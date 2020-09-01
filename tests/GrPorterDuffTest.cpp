@@ -9,6 +9,7 @@
 
 #include "include/gpu/GrBackendSurface.h"
 #include "include/gpu/GrContextOptions.h"
+#include "include/gpu/GrDirectContext.h"
 #include "src/gpu/GrContextPriv.h"
 #include "src/gpu/GrGpu.h"
 #include "src/gpu/GrProxyProvider.h"
@@ -31,7 +32,7 @@ static void test_lcd_coverage_fallback_case(skiatest::Reporter* reporter, const 
 DEF_GPUTEST(GrPorterDuff, reporter, /*ctxInfo*/) {
     GrMockOptions mockOptions;
     mockOptions.fDualSourceBlendingSupport = true;
-    auto context = GrContext::MakeMock(&mockOptions, GrContextOptions());
+    sk_sp<GrDirectContext> context = GrDirectContext::MakeMock(&mockOptions, GrContextOptions());
     const GrCaps& caps = *context->priv().getGpu()->caps();
 
     if (!caps.shaderCaps()->dualSourceBlendingSupport()) {
@@ -987,7 +988,7 @@ DEF_GPUTEST(PorterDuffNoDualSourceBlending, reporter, options) {
     GrContextOptions opts = options;
     opts.fSuppressDualSourceBlending = true;
     sk_gpu_test::GrContextFactory mockFactory(opts);
-    GrContext* ctx = mockFactory.get(sk_gpu_test::GrContextFactory::kMock_ContextType);
+    auto ctx = mockFactory.get(sk_gpu_test::GrContextFactory::kMock_ContextType);
     if (!ctx) {
         SK_ABORT("Failed to create mock context without ARB_blend_func_extended.");
     }
@@ -1000,7 +1001,7 @@ DEF_GPUTEST(PorterDuffNoDualSourceBlending, reporter, options) {
 
     GrBackendTexture backendTex;
     CreateBackendTexture(ctx, &backendTex, 100, 100, kRGBA_8888_SkColorType,
-                         SkColors::kTransparent, GrMipMapped::kNo, GrRenderable::kNo);
+                         SkColors::kTransparent, GrMipmapped::kNo, GrRenderable::kNo);
 
     GrXferProcessor::DstProxyView fakeDstProxyView;
     {

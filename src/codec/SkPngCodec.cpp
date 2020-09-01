@@ -127,7 +127,6 @@ private:
         fInfo_ptr = nullptr;
     }
 };
-#define AutoCleanPng(...) SK_REQUIRE_LOCAL_VAR(AutoCleanPng)
 
 static inline bool is_chunk(const png_byte* chunk, const char* tag) {
     return memcmp(chunk + 4, tag, 4) == 0;
@@ -1018,8 +1017,7 @@ SkCodec::Result SkPngCodec::initializeXforms(const SkImageInfo& dstInfo, const O
             if (this->getEncodedInfo().bitsPerComponent() != 16) {
                 break;
             }
-
-            // Fall through
+            [[fallthrough]];
         case SkEncodedInfo::kRGBA_Color:
         case SkEncodedInfo::kGray_Color:
             skipFormatConversion = this->colorXform();

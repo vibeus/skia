@@ -33,14 +33,6 @@ static const Type& index_type(const Context& context, const Type& type) {
                 case 4: return *context.fHalf4_Type;
                 default: SkASSERT(false);
             }
-        } else {
-           SkASSERT(type.componentType() == *context.fDouble_Type);
-            switch (type.rows()) {
-                case 2: return *context.fDouble2_Type;
-                case 3: return *context.fDouble3_Type;
-                case 4: return *context.fDouble4_Type;
-                default: SkASSERT(false);
-            }
         }
     }
     return type.componentType();
@@ -50,9 +42,11 @@ static const Type& index_type(const Context& context, const Type& type) {
  * An expression which extracts a value from an array or matrix, as in 'm[2]'.
  */
 struct IndexExpression : public Expression {
+    static constexpr Kind kExpressionKind = kIndex_Kind;
+
     IndexExpression(const Context& context, std::unique_ptr<Expression> base,
                     std::unique_ptr<Expression> index)
-    : INHERITED(base->fOffset, kIndex_Kind, index_type(context, base->fType))
+    : INHERITED(base->fOffset, kExpressionKind, index_type(context, base->fType))
     , fBase(std::move(base))
     , fIndex(std::move(index)) {
         SkASSERT(fIndex->fType == *context.fInt_Type || fIndex->fType == *context.fUInt_Type);
@@ -60,6 +54,10 @@ struct IndexExpression : public Expression {
 
     bool hasProperty(Property property) const override {
         return fBase->hasProperty(property) || fIndex->hasProperty(property);
+    }
+
+    int nodeCount() const override {
+        return 1 + fBase->nodeCount() + fIndex->nodeCount();
     }
 
     std::unique_ptr<Expression> clone() const override {
@@ -84,6 +82,6 @@ private:
     , fIndex(std::move(index)) {}
 };
 
-} // namespace
+}  // namespace SkSL
 
 #endif

@@ -5,14 +5,12 @@
  * found in the LICENSE file.
  */
 
-#include "include/gpu/GrContext.h"
+#include "include/gpu/GrDirectContext.h"
 #include "src/gpu/GrContextPriv.h"
 #include "src/gpu/GrProxyProvider.h"
 #include "src/gpu/GrRenderTargetContext.h"
 #include "src/gpu/GrShaderCaps.h"
-#include "src/gpu/GrSurfacePriv.h"
 #include "src/gpu/GrTexture.h"
-#include "src/gpu/GrTexturePriv.h"
 #include "src/gpu/GrTextureProxyPriv.h"
 #include "src/gpu/gl/GrGLGpu.h"
 #include "src/gpu/gl/GrGLUtil.h"
@@ -26,13 +24,13 @@
 using sk_gpu_test::GLTestContext;
 
 static void cleanup(GLTestContext* glctx0, GrGLuint texID0, GLTestContext* glctx1,
-                    sk_sp<GrContext> grctx1, GrBackendTexture* backendTex1,
+                    sk_sp<GrDirectContext> dContext, GrBackendTexture* backendTex1,
                     GrEGLImage image1) {
     if (glctx1) {
         glctx1->makeCurrent();
-        if (grctx1) {
+        if (dContext) {
             if (backendTex1 && backendTex1->isValid()) {
-                grctx1->deleteBackendTexture(*backendTex1);
+                dContext->deleteBackendTexture(*backendTex1);
             }
         }
         if (GR_EGL_NO_IMAGE != image1) {
@@ -47,7 +45,7 @@ static void cleanup(GLTestContext* glctx0, GrGLuint texID0, GLTestContext* glctx
 }
 
 DEF_GPUTEST_FOR_GL_RENDERING_CONTEXTS(EGLImageTest, reporter, ctxInfo) {
-    GrContext* context0 = ctxInfo.grContext();
+    auto context0 = ctxInfo.directContext();
     sk_gpu_test::GLTestContext* glCtx0 = ctxInfo.glContext();
 
     // Try to create a second GL context and then check if the contexts have necessary
@@ -65,7 +63,7 @@ DEF_GPUTEST_FOR_GL_RENDERING_CONTEXTS(EGLImageTest, reporter, ctxInfo) {
     if (!glCtx1) {
         return;
     }
-    sk_sp<GrContext> context1 = GrContext::MakeGL(sk_ref_sp(glCtx1->gl()));
+    sk_sp<GrDirectContext> context1 = GrDirectContext::MakeGL(sk_ref_sp(glCtx1->gl()));
     GrBackendTexture backendTexture1;
     GrEGLImage image = GR_EGL_NO_IMAGE;
     GrGLTextureInfo externalTexture;
@@ -84,12 +82,12 @@ DEF_GPUTEST_FOR_GL_RENDERING_CONTEXTS(EGLImageTest, reporter, ctxInfo) {
 
     ///////////////////////////////// CONTEXT 1 ///////////////////////////////////
 
-    // Use GL Context 1 to create a texture unknown to GrContext.
-    context1->flush();
+    // Use GL Context 1 to create a texture unknown to context 0.
+    context1->flushAndSubmit();
     static const int kSize = 100;
 
     CreateBackendTexture(context1.get(), &backendTexture1, kSize, kSize, kRGBA_8888_SkColorType,
-                         SkColors::kTransparent, GrMipMapped::kNo, GrRenderable::kNo,
+                         SkColors::kTransparent, GrMipmapped::kNo, GrRenderable::kNo,
                          GrProtected::kNo);
 
     if (!backendTexture1.isValid()) {
@@ -136,7 +134,7 @@ DEF_GPUTEST_FOR_GL_RENDERING_CONTEXTS(EGLImageTest, reporter, ctxInfo) {
     GR_GL_CALL(glCtx1->gl(), TexSubImage2D(texInfo.fTarget, 0, 0, 0, kSize, kSize,
                                            GR_GL_RGBA, GR_GL_UNSIGNED_BYTE, pixels.get()));
     GR_GL_CALL(glCtx1->gl(), Finish());
-    // We've been making direct GL calls in GL context 1, let GrContext 1 know its internal
+    // We've been making direct GL calls in GL context 1, let GrDirectContext 1 know its internal
     // state is invalid.
     context1->resetContext();
 
@@ -154,7 +152,7 @@ DEF_GPUTEST_FOR_GL_RENDERING_CONTEXTS(EGLImageTest, reporter, ctxInfo) {
     }
 
     // Wrap this texture ID in a GrTexture
-    GrBackendTexture backendTex(kSize, kSize, GrMipMapped::kNo, externalTexture);
+    GrBackendTexture backendTex(kSize, kSize, GrMipmapped::kNo, externalTexture);
 
     GrColorType colorType = GrColorType::kRGBA_8888;
     SkAlphaType alphaType = kPremul_SkAlphaType;
@@ -181,28 +179,27 @@ DEF_GPUTEST_FOR_GL_RENDERING_CONTEXTS(EGLImageTest, reporter, ctxInfo) {
     }
 
     GrTextureProxy* proxy = surfaceContext->asTextureProxy();
-    REPORTER_ASSERT(reporter, proxy->mipMapped() == GrMipMapped::kNo);
-    REPORTER_ASSERT(reporter, proxy->peekTexture()->texturePriv().mipMapped() == GrMipMapped::kNo);
+    REPORTER_ASSERT(reporter, proxy->mipmapped() == GrMipmapped::kNo);
+    REPORTER_ASSERT(reporter, proxy->peekTexture()->mipmapped() == GrMipmapped::kNo);
 
     REPORTER_ASSERT(reporter, proxy->textureType() == GrTextureType::kExternal);
-    REPORTER_ASSERT(reporter,
-                    proxy->peekTexture()->texturePriv().textureType() == GrTextureType::kExternal);
+    REPORTER_ASSERT(reporter, proxy->peekTexture()->textureType() == GrTextureType::kExternal);
     REPORTER_ASSERT(reporter, proxy->hasRestrictedSampling());
-    REPORTER_ASSERT(reporter, proxy->peekTexture()->texturePriv().hasRestrictedSampling());
+    REPORTER_ASSERT(reporter, proxy->peekTexture()->hasRestrictedSampling());
 
     // Should not be able to wrap as a RT
     {
         auto temp = GrRenderTargetContext::MakeFromBackendTexture(
-                context0, colorType, nullptr, backendTex, 1, origin, nullptr, nullptr, nullptr);
+                context0, colorType, nullptr, backendTex, 1, origin, nullptr, nullptr);
         if (temp) {
             ERRORF(reporter, "Should not be able to wrap an EXTERNAL texture as a RT.");
         }
     }
 
-    TestReadPixels(reporter, surfaceContext.get(), pixels.get(), "EGLImageTest-read");
+    TestReadPixels(reporter, context0, surfaceContext.get(), pixels.get(), "EGLImageTest-read");
 
-    // We should not be able to write to a EXTERNAL texture
-    TestWritePixels(reporter, surfaceContext.get(), false, "EGLImageTest-write");
+    // We should not be able to write to an EXTERNAL texture
+    TestWritePixels(reporter, context0, surfaceContext.get(), false, "EGLImageTest-write");
 
     // Only test RT-config
     // TODO: why do we always need to draw to copy from an external texture?

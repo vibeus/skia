@@ -45,6 +45,7 @@ public:
                                           SkAlphaType srcAlphaType,
                                           sk_sp<GrColorSpaceXform>,
                                           GrSamplerState::Filter,
+                                          GrSamplerState::MipmapMode,
                                           const SkPMColor4f&,
                                           Saturate,
                                           SkBlendMode,
@@ -56,12 +57,13 @@ public:
     // supported, or if the blend mode is not src-over. 'cnt' is the size of the entry array.
     // 'proxyCnt' <= 'cnt' and represents the number of proxy switches within the array.
     static void AddTextureSetOps(GrRenderTargetContext*,
-                                 const GrClip& clip,
+                                 const GrClip* clip,
                                  GrRecordingContext*,
                                  GrRenderTargetContext::TextureSetEntry[],
                                  int cnt,
                                  int proxyRunCnt,
                                  GrSamplerState::Filter,
+                                 GrSamplerState::MipmapMode,
                                  Saturate,
                                  SkBlendMode,
                                  GrAAType,

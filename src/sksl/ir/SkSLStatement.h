@@ -25,7 +25,6 @@ struct Statement : public IRNode {
         kDo_Kind,
         kExpression_Kind,
         kFor_Kind,
-        kGroup_Kind,
         kIf_Kind,
         kNop_Kind,
         kReturn_Kind,
@@ -39,6 +38,22 @@ struct Statement : public IRNode {
     : INHERITED(offset)
     , fKind(kind) {}
 
+    /**
+     *  Use as<T> to downcast statements.
+     *  e.g. replace `(ReturnStatement&) s` with `s.as<ReturnStatement>()`.
+     */
+    template <typename T>
+    const T& as() const {
+        SkASSERT(this->fKind == T::kStatementKind);
+        return static_cast<const T&>(*this);
+    }
+
+    template <typename T>
+    T& as() {
+        SkASSERT(this->fKind == T::kStatementKind);
+        return static_cast<T&>(*this);
+    }
+
     virtual bool isEmpty() const {
         return false;
     }
@@ -50,6 +65,6 @@ struct Statement : public IRNode {
     typedef IRNode INHERITED;
 };
 
-} // namespace
+}  // namespace SkSL
 
 #endif

@@ -34,16 +34,6 @@ static void dump(skvm::Builder& builder, SkWStream* o) {
 
 template <typename Fn>
 static void test_jit_and_interpreter(skvm::Program&& program, Fn&& test) {
-#if defined(SKVM_LLVM)
-    SkASSERT(program.hasJIT());
-#elif defined(SKVM_JIT) && defined(SK_CPU_X86)
-    SkASSERT(program.hasJIT() == SkCpu::Supports(SkCpu::HSW));
-#elif defined(SKVM_JIT)                         // eventually!
-    //SkASSERT(program.hasJIT());
-#else
-    SkASSERT(!program.hasJIT());
-#endif
-
     if (program.hasJIT()) {
         test((const skvm::Program&) program);
         program.dropJIT();
@@ -1123,7 +1113,10 @@ DEF_TEST(SkVM_Assembler, r) {
         a.add(A::Mem{A::rsi}, 7);                       // addq $7, (%rsi)
         a.add(A::Mem{A::rsi, 12}, 7);                   // addq $7, 12(%rsi)
         a.add(A::Mem{A::rsp, 12}, 7);                   // addq $7, 12(%rsp)
+        a.add(A::Mem{A::r12, 12}, 7);                   // addq $7, 12(%r12)
         a.add(A::Mem{A::rsp, 12, A::rax, A::FOUR}, 7);  // addq $7, 12(%rsp,%rax,4)
+        a.add(A::Mem{A::r12, 12, A::rax, A::FOUR}, 7);  // addq $7, 12(%r12,%rax,4)
+        a.add(A::Mem{A::rax, 12, A::r12, A::FOUR}, 7);  // addq $7, 12(%rax,%r12,4)
         a.add(A::Mem{A::r11, 12, A::r8 , A::TWO }, 7);  // addq $7, 12(%r11,%r8,2)
         a.add(A::Mem{A::r11, 12, A::rax}         , 7);  // addq $7, 12(%r11,%rax)
         a.add(A::Mem{A::rax, 12, A::r11}         , 7);  // addq $7, 12(%rax,%r11)
@@ -1152,7 +1145,10 @@ DEF_TEST(SkVM_Assembler, r) {
         0x48,0x83,0x06,0x07,
         0x48,0x83,0x46,0x0c,0x07,
         0x48,0x83,0x44,0x24,0x0c,0x07,
+        0x49,0x83,0x44,0x24,0x0c,0x07,
         0x48,0x83,0x44,0x84,0x0c,0x07,
+        0x49,0x83,0x44,0x84,0x0c,0x07,
+        0x4a,0x83,0x44,0xa0,0x0c,0x07,
         0x4b,0x83,0x44,0x43,0x0c,0x07,
         0x49,0x83,0x44,0x03,0x0c,0x07,
         0x4a,0x83,0x44,0x18,0x0c,0x07,
@@ -1227,9 +1223,23 @@ DEF_TEST(SkVM_Assembler, r) {
     });
 
     test_asm(r, [&](A& a) {
+        A::Label l;
+        a.vpermps(A::ymm1, A::ymm2, A::Mem{A::rdi, 32});
+        a.vperm2f128(A::ymm1, A::ymm2, &l, 0x20);
         a.vpermq(A::ymm1, A::ymm2, 5);
+        a.label(&l);  // 6 bytes after vperm2f128
     },{
+        0xc4,0xe2,0x6d,0x16,0x4f,0x20,
+        0xc4,0xe3,0x6d,0x06,0x0d,0x06,0x00,0x00,0x00,0x20,
         0xc4,0xe3,0xfd, 0x00,0xca, 0x05,
+    });
+
+    test_asm(r, [&](A& a) {
+        a.vpunpckldq(A::ymm1, A::ymm2, A::Mem{A::rdi});
+        a.vpunpckhdq(A::ymm1, A::ymm2, A::ymm3);
+    },{
+        0xc5,0xed,0x62,0x0f,
+        0xc5,0xed,0x6a,0xcb,
     });
 
     test_asm(r, [&](A& a) {
@@ -1332,6 +1342,7 @@ DEF_TEST(SkVM_Assembler, r) {
         a.vmovups(A::ymm5, A::Mem{A::rsi});
         a.vmovups(A::Mem{A::rsi}, A::ymm5);
 
+        a.vmovups(A::xmm5, A::Mem{A::rsi});
         a.vmovups(A::Mem{A::rsi}, A::xmm5);
 
         a.vpmovzxwd(A::ymm4, A::Mem{A::rsi});
@@ -1343,6 +1354,7 @@ DEF_TEST(SkVM_Assembler, r) {
         0xc5,     0xfc,   0x10,  0b00'101'110,
         0xc5,     0xfc,   0x11,  0b00'101'110,
 
+        0xc5,     0xf8,   0x10,  0b00'101'110,
         0xc5,     0xf8,   0x11,  0b00'101'110,
 
         0xc4,0xe2,0x7d,   0x33,  0b00'100'110,
@@ -1468,11 +1480,14 @@ DEF_TEST(SkVM_Assembler, r) {
     });
 
     test_asm(r, [&](A& a) {
+        a.vpinsrd(A::xmm1, A::xmm8, A::Mem{A::rsi}, 1);   // vpinsrd $1, (%rsi), %xmm8, %xmm1
+        a.vpinsrd(A::xmm8, A::xmm1, A::Mem{A::r8 }, 3);   // vpinsrd $3, (%r8), %xmm1, %xmm8;
+
         a.vpinsrw(A::xmm1, A::xmm8, A::Mem{A::rsi}, 4);   // vpinsrw $4, (%rsi), %xmm8, %xmm1
         a.vpinsrw(A::xmm8, A::xmm1, A::Mem{A::r8 }, 12);  // vpinrsw $12, (%r8), %xmm1, %xmm8
 
         a.vpinsrb(A::xmm1, A::xmm8, A::Mem{A::rsi}, 4);   // vpinsrb $4, (%rsi), %xmm8, %xmm1
-        a.vpinsrb(A::xmm8, A::xmm1, A::Mem{A::r8 }, 12);  // vpinsrb $4, (%rsi), %xmm8, %xmm1
+        a.vpinsrb(A::xmm8, A::xmm1, A::Mem{A::r8 }, 12);  // vpinsrb $12, (%r8), %xmm1, %xmm8
 
         a.vextracti128(A::xmm1, A::ymm8, 1);  // vextracti128 $1, %ymm8, %xmm1
         a.vextracti128(A::xmm8, A::ymm1, 0);  // vextracti128 $0, %ymm1, %xmm8
@@ -1486,6 +1501,9 @@ DEF_TEST(SkVM_Assembler, r) {
         a.vpextrb(A::Mem{A::rsi}, A::xmm8, 7);
         a.vpextrb(A::Mem{A::r8 }, A::xmm1, 15);
     },{
+        0xc4,0xe3,0x39, 0x22, 0x0e, 1,
+        0xc4,0x43,0x71, 0x22, 0x00, 3,
+
         0xc5,0xb9,      0xc4, 0x0e,  4,
         0xc4,0x41,0x71, 0xc4, 0x00, 12,
 
@@ -1562,6 +1580,20 @@ DEF_TEST(SkVM_Assembler, r) {
         0xc5,0xfc,0x5b,0xda,
         0xc5,0xfd,0x5b,0xda,
         0xc5,0xfc,0x51,0xda,
+    });
+
+    test_asm(r, [&](A& a) {
+        a.vcvtps2ph(A::xmm3, A::ymm2, A::CURRENT);
+        a.vcvtps2ph(A::Mem{A::rsi, 32, A::rax, A::EIGHT}, A::ymm5, A::CEIL);
+
+        a.vcvtph2ps(A::ymm15, A::Mem{A::rdi, 12, A::r9, A::ONE});
+        a.vcvtph2ps(A::ymm2, A::xmm3);
+    },{
+        0xc4,0xe3,0x7d,0x1d,0xd3,0x04,
+        0xc4,0xe3,0x7d,0x1d,0x6c,0xc6,0x20,0x02,
+
+        0xc4,0x22,0x7d,0x13,0x7c,0x0f,0x0c,
+        0xc4,0xe2,0x7d,0x13,0xd3,
     });
 
     test_asm(r, [&](A& a) {
@@ -2170,4 +2202,140 @@ DEF_TEST(SkVM_min_max, r) {
             }
         });
     }
+}
+
+DEF_TEST(SkVM_halfs, r) {
+    const uint16_t hs[] = {0x0000,0x3800,0x3c00,0x4000,
+                           0xc400,0xb800,0xbc00,0xc000};
+    const float fs[] = {+0.0f,+0.5f,+1.0f,+2.0f,
+                        -4.0f,-0.5f,-1.0f,-2.0f};
+    {
+        skvm::Builder b;
+        skvm::Arg src = b.varying<uint16_t>(),
+                  dst = b.varying<float>();
+        b.storeF(dst, b.from_half(b.load16(src)));
+
+        test_jit_and_interpreter(b.done(), [&](const skvm::Program& program){
+            float dst[8];
+            program.eval(8, hs, dst);
+            for (int i = 0; i < 8; i++) {
+                REPORTER_ASSERT(r, dst[i] == fs[i]);
+            }
+        });
+    }
+    {
+        skvm::Builder b;
+        skvm::Arg src = b.varying<float>(),
+                  dst = b.varying<uint16_t>();
+        b.store16(dst, b.to_half(b.loadF(src)));
+
+        test_jit_and_interpreter(b.done(), [&](const skvm::Program& program){
+            uint16_t dst[8];
+            program.eval(8, fs, dst);
+            for (int i = 0; i < 8; i++) {
+                REPORTER_ASSERT(r, dst[i] == hs[i]);
+            }
+        });
+    }
+}
+
+DEF_TEST(SkVM_64bit, r) {
+    uint32_t lo[65],
+             hi[65];
+    uint64_t wide[65];
+    for (int i = 0; i < 65; i++) {
+        lo[i] = 2*i+0;
+        hi[i] = 2*i+1;
+        wide[i] = ((uint64_t)lo[i] <<  0)
+                | ((uint64_t)hi[i] << 32);
+    }
+
+    {
+        skvm::Builder b;
+        {
+            skvm::Arg wide = b.varying<uint64_t>(),
+                        lo = b.varying<int>(),
+                        hi = b.varying<int>();
+            b.store32(lo, b.load64(wide, 0));
+            b.store32(hi, b.load64(wide, 1));
+        }
+        test_jit_and_interpreter(b.done(), [&](const skvm::Program& program){
+            uint32_t l[65], h[65];
+            program.eval(65, wide,l,h);
+            for (int i = 0; i < 65; i++) {
+                REPORTER_ASSERT(r, l[i] == lo[i]);
+                REPORTER_ASSERT(r, h[i] == hi[i]);
+            }
+        });
+    }
+
+    {
+        skvm::Builder b;
+        {
+            skvm::Arg wide = b.varying<uint64_t>(),
+                        lo = b.varying<int>(),
+                        hi = b.varying<int>();
+            b.store64(wide, b.load32(lo), b.load32(hi));
+        }
+        test_jit_and_interpreter(b.done(), [&](const skvm::Program& program){
+            uint64_t w[65];
+            program.eval(65, w,lo,hi);
+            for (int i = 0; i < 65; i++) {
+                REPORTER_ASSERT(r, w[i] == wide[i]);
+            }
+        });
+    }
+}
+
+DEF_TEST(SkVM_is_NaN_is_finite, r) {
+    skvm::Builder b;
+    {
+        skvm::Arg src = b.varying<float>(),
+                  nan = b.varying<int>(),
+                  fin = b.varying<int>();
+        b.store32(nan, is_NaN   (b.loadF(src)));
+        b.store32(fin, is_finite(b.loadF(src)));
+    }
+    test_jit_and_interpreter(b.done(), [&](const skvm::Program& program){
+        // ±NaN, ±0, ±1, ±inf
+        const uint32_t bits[] = {0x7f80'0001, 0xff80'0001, 0x0000'0000, 0x8000'0000,
+                                 0x3f80'0000, 0xbf80'0000, 0x7f80'0000, 0xff80'0000};
+        uint32_t nan[8], fin[8];
+        program.eval(8, bits, nan,fin);
+
+        for (int i = 0; i < 8; i++) {
+            REPORTER_ASSERT(r, nan[i] == ((i == 0 || i == 1) ? 0xffffffff : 0));
+            REPORTER_ASSERT(r, fin[i] == ((i == 2 || i == 3 ||
+                                           i == 4 || i == 5) ? 0xffffffff : 0));
+        }
+    });
+}
+
+DEF_TEST(SkVM_args, r) {
+    // Test we can handle at least six arguments.
+    skvm::Builder b;
+    {
+        skvm::Arg dst = b.varying<float>(),
+                    A = b.varying<float>(),
+                    B = b.varying<float>(),
+                    C = b.varying<float>(),
+                    D = b.varying<float>(),
+                    E = b.varying<float>();
+        storeF(dst, b.loadF(A)
+                  + b.loadF(B)
+                  + b.loadF(C)
+                  + b.loadF(D)
+                  + b.loadF(E));
+    }
+
+    test_jit_and_interpreter(b.done(), [&](const skvm::Program& program){
+        float dst[17],A[17],B[17],C[17],D[17],E[17];
+        for (int i = 0; i < 17; i++) {
+            A[i] = B[i] = C[i] = D[i] = E[i] = (float)i;
+        }
+        program.eval(17, dst,A,B,C,D,E);
+        for (int i = 0; i < 17; i++) {
+            REPORTER_ASSERT(r, dst[i] == 5.0f*i);
+        }
+    });
 }

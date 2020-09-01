@@ -13,6 +13,7 @@
 #include "src/core/SkLRUCache.h"
 #include "src/core/SkTDynamicHash.h"
 #include "src/core/SkTInternalLList.h"
+#include "src/gpu/GrGpu.h"
 #include "src/gpu/GrManagedResource.h"
 #include "src/gpu/GrProgramDesc.h"
 #include "src/gpu/GrResourceHandle.h"
@@ -57,9 +58,11 @@ public:
     // non null it will be set to a handle that can be used in the furutre to quickly return a
     // compatible GrVkRenderPasses without the need inspecting a GrVkRenderTarget.
     const GrVkRenderPass* findCompatibleRenderPass(const GrVkRenderTarget& target,
-                                                   CompatibleRPHandle* compatibleHandle = nullptr);
+                                                   CompatibleRPHandle* compatibleHandle,
+                                                   bool withStencil, bool needsSelfDependency);
     const GrVkRenderPass* findCompatibleRenderPass(GrVkRenderPass::AttachmentsDescriptor*,
                                                    GrVkRenderPass::AttachmentFlags,
+                                                   bool needsSelfDependency,
                                                    CompatibleRPHandle* compatibleHandle = nullptr);
 
     const GrVkRenderPass* findCompatibleExternalRenderPass(VkRenderPass,
@@ -73,7 +76,9 @@ public:
     const GrVkRenderPass* findRenderPass(GrVkRenderTarget* target,
                                          const GrVkRenderPass::LoadStoreOps& colorOps,
                                          const GrVkRenderPass::LoadStoreOps& stencilOps,
-                                         CompatibleRPHandle* compatibleHandle = nullptr);
+                                         CompatibleRPHandle* compatibleHandle,
+                                         bool withStencil,
+                                         bool needsSelfDependency);
 
     // The CompatibleRPHandle must be a valid handle previously set by a call to findRenderPass or
     // findCompatibleRenderPass.
@@ -89,8 +94,7 @@ public:
     // that the client cares about before they explicitly called flush and the GPU may reorder
     // command execution. So we make sure all previously submitted work finishes before we call the
     // finishedProc.
-    void addFinishedProcToActiveCommandBuffers(GrGpuFinishedProc finishedProc,
-                                               GrGpuFinishedContext finishedContext);
+    void addFinishedProcToActiveCommandBuffers(sk_sp<GrRefCntedCallback> finishedCallback);
 
     // Finds or creates a compatible GrVkDescriptorPool for the requested type and count.
     // The refcount is incremented and a pointer returned.
@@ -226,7 +230,8 @@ private:
         CompatibleRenderPassSet(GrVkRenderPass* renderPass);
 
         bool isCompatible(const GrVkRenderPass::AttachmentsDescriptor&,
-                          GrVkRenderPass::AttachmentFlags) const;
+                          GrVkRenderPass::AttachmentFlags,
+                          bool needsSelfDependency) const;
 
         const GrVkRenderPass* getCompatibleRenderPass() const {
             // The first GrVkRenderpass should always exist since we create the basic load store

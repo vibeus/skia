@@ -27,7 +27,6 @@ def RunSteps(api):
 
 TEST_BUILDERS = [
   'Build-Debian9-Clang-arm-Release-Flutter_Android_Docker',
-  'Build-Debian10-GCC-loongson3a-Release-Docker',
   'Build-Debian10-GCC-x86-Debug-Docker',
   'Build-Debian10-GCC-x86_64-Debug-Docker',
   'Build-Debian10-GCC-x86_64-Release-NoGPU_Docker',
@@ -65,6 +64,7 @@ TEST_BUILDERS = [
   'Build-Debian10-EMCC-wasm-Debug-PathKit',
   'Build-Debian10-EMCC-wasm-Release-CanvasKit_CPU',
   'Build-Debian10-EMCC-wasm-Release-PathKit',
+  "Build-Mac10.15.5-Clang-arm64-Debug-iOS",
   'Build-Mac-Clang-arm-Debug-iOS',
   'Build-Mac-Clang-arm64-Debug-Android_Vulkan',
   'Build-Mac-Clang-arm64-Debug-iOS',

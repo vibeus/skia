@@ -15,35 +15,38 @@
 #include "src/sksl/ir/SkSLType.h"
 #include "src/sksl/ir/SkSLVariable.h"
 
+#include <atomic>
+
 namespace SkSL {
+
+struct FunctionDefinition;
 
 /**
  * A function declaration (not a definition -- does not contain a body).
  */
 struct FunctionDeclaration : public Symbol {
+    static constexpr Kind kSymbolKind = kFunctionDeclaration_Kind;
+
     FunctionDeclaration(int offset, Modifiers modifiers, StringFragment name,
-                        std::vector<const Variable*> parameters, const Type& returnType)
-    : INHERITED(offset, kFunctionDeclaration_Kind, std::move(name))
-    , fDefined(false)
-    , fBuiltin(false)
+                        std::vector<const Variable*> parameters, const Type& returnType,
+                        bool builtin)
+    : INHERITED(offset, kSymbolKind, std::move(name))
+    , fDefinition(nullptr)
+    , fBuiltin(builtin)
     , fModifiers(modifiers)
     , fParameters(std::move(parameters))
     , fReturnType(returnType) {}
 
-    String declaration() const {
+    String description() const override {
         String result = fReturnType.displayName() + " " + fName + "(";
         String separator;
         for (auto p : fParameters) {
             result += separator;
             separator = ", ";
-            result += p->fName;
+            result += p->fType.displayName();
         }
         result += ")";
         return result;
-    }
-
-    String description() const override {
-        return this->declaration();
     }
 
     bool matches(const FunctionDeclaration& f) const {
@@ -107,15 +110,16 @@ struct FunctionDeclaration : public Symbol {
         return true;
     }
 
-    mutable bool fDefined;
+    mutable FunctionDefinition* fDefinition;
     bool fBuiltin;
     Modifiers fModifiers;
     const std::vector<const Variable*> fParameters;
     const Type& fReturnType;
+    mutable std::atomic<int> fCallCount = 0;
 
     typedef Symbol INHERITED;
 };
 
-} // namespace
+}  // namespace SkSL
 
 #endif

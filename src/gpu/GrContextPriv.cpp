@@ -8,6 +8,7 @@
 #include "src/gpu/GrContextPriv.h"
 
 #include "include/gpu/GrContextThreadSafeProxy.h"
+#include "include/gpu/GrDirectContext.h"
 #include "src/gpu/GrAuditTrail.h"
 #include "src/gpu/GrContextThreadSafeProxyPriv.h"
 #include "src/gpu/GrDrawingManager.h"
@@ -16,7 +17,6 @@
 #include "src/gpu/GrRenderTargetContext.h"
 #include "src/gpu/GrSurfaceContext.h"
 #include "src/gpu/GrSurfaceContextPriv.h"
-#include "src/gpu/GrSurfacePriv.h"
 #include "src/gpu/GrTexture.h"
 #include "src/gpu/SkGr.h"
 #include "src/gpu/effects/GrSkSLFP.h"
@@ -28,8 +28,7 @@
 
 #define ASSERT_OWNED_PROXY(P) \
     SkASSERT(!(P) || !((P)->peekTexture()) || (P)->peekTexture()->getContext() == fContext)
-#define ASSERT_SINGLE_OWNER \
-    SkDEBUGCODE(GrSingleOwner::AutoEnforce debug_SingleOwner(fContext->singleOwner());)
+#define ASSERT_SINGLE_OWNER GR_ASSERT_SINGLE_OWNER(fContext->singleOwner())
 #define RETURN_VALUE_IF_ABANDONED(value) if (fContext->abandoned()) { return (value); }
 #define RETURN_IF_ABANDONED RETURN_VALUE_IF_ABANDONED(void)
 
@@ -53,20 +52,16 @@ GrSemaphoresSubmitted GrContextPriv::flushSurfaces(GrSurfaceProxy* proxies[], in
         ASSERT_OWNED_PROXY(proxies[i]);
     }
     return fContext->drawingManager()->flushSurfaces(
-            proxies, numProxies, SkSurface::BackendSurfaceAccess::kNoAccess, info);
+            proxies, numProxies, SkSurface::BackendSurfaceAccess::kNoAccess, info, nullptr);
 }
 
 void GrContextPriv::flushSurface(GrSurfaceProxy* proxy) {
     this->flushSurfaces(proxy ? &proxy : nullptr, proxy ? 1 : 0, {});
 }
 
-void GrContextPriv::moveRenderTasksToDDL(SkDeferredDisplayList* ddl) {
-    fContext->drawingManager()->moveRenderTasksToDDL(ddl);
-}
-
-void GrContextPriv::copyRenderTasksFromDDL(const SkDeferredDisplayList* ddl,
+void GrContextPriv::copyRenderTasksFromDDL(sk_sp<const SkDeferredDisplayList> ddl,
                                            GrRenderTargetProxy* newDest) {
-    fContext->drawingManager()->copyRenderTasksFromDDL(ddl, newDest);
+    fContext->drawingManager()->copyRenderTasksFromDDL(std::move(ddl), newDest);
 }
 
 bool GrContextPriv::compile(const GrProgramDesc& desc, const GrProgramInfo& info) {
@@ -154,10 +149,6 @@ void GrContextPriv::printContextStats() const {
 }
 
 /////////////////////////////////////////////////
-void GrContextPriv::testingOnly_setTextBlobCacheLimit(size_t bytes) {
-    fContext->priv().getTextBlobCache()->setBudget(bytes);
-}
-
 sk_sp<SkImage> GrContextPriv::testingOnly_getFontAtlasImage(GrMaskFormat format, unsigned int index) {
     auto atlasManager = this->getAtlasManager();
     if (!atlasManager) {
@@ -182,16 +173,21 @@ void GrContextPriv::testingOnly_purgeAllUnlockedResources() {
 }
 
 void GrContextPriv::testingOnly_flushAndRemoveOnFlushCallbackObject(GrOnFlushCallbackObject* cb) {
-    fContext->flush();
+    fContext->flushAndSubmit();
     fContext->drawingManager()->testingOnly_removeOnFlushCallbackObject(cb);
 }
 #endif
 
 bool GrContextPriv::validPMUPMConversionExists() {
     ASSERT_SINGLE_OWNER
+
+    // CONTEXT TODO: remove this downcast when this class becomes GrDirectContextPriv
+    auto direct = GrAsDirectContext(fContext);
+    SkASSERT(direct);
+
     if (!fContext->fDidTestPMConversions) {
         fContext->fPMUPMConversionsRoundTrip =
-                GrConfigConversionEffect::TestForPreservingPMConversions(fContext);
+                GrConfigConversionEffect::TestForPreservingPMConversions(direct);
         fContext->fDidTestPMConversions = true;
     }
 

@@ -21,7 +21,7 @@ class GLTestContext : public TestContext {
 public:
     ~GLTestContext() override;
 
-    virtual GrBackendApi backend() override { return GrBackendApi::kOpenGL; }
+    GrBackendApi backend() override { return GrBackendApi::kOpenGL; }
 
     /** Does this represent a successfully created GL context? */
     bool isValid() const;
@@ -32,10 +32,6 @@ public:
     virtual GrEGLImage texture2DToEGLImage(GrGLuint /*texID*/) const { return nullptr; }
 
     virtual void destroyEGLImage(GrEGLImage) const { }
-
-    /** Used for testing GL_TEXTURE_RECTANGLE integration. */
-    GrGLuint createTextureRectangle(int width, int height, GrGLenum internalFormat,
-                                    GrGLenum externalFormat, GrGLenum externalType, GrGLvoid* data);
 
     /**
      * Used for testing EGLImage integration. Takes a EGLImage and wraps it in a
@@ -70,7 +66,7 @@ public:
         }
     }
 
-    sk_sp<GrContext> makeGrContext(const GrContextOptions& options) override;
+    sk_sp<GrDirectContext> makeContext(const GrContextOptions& options) override;
 
 protected:
     GLTestContext();

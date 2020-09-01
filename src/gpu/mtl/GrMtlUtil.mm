@@ -7,6 +7,7 @@
 
 #include "src/gpu/mtl/GrMtlUtil.h"
 
+#include "include/gpu/GrBackendSurface.h"
 #include "include/private/GrTypesPriv.h"
 #include "include/private/SkMutex.h"
 #include "src/gpu/GrSurface.h"
@@ -118,7 +119,6 @@ id<MTLLibrary> GrCompileMtlShaderLibrary(const GrMtlGpu* gpu,
 class MtlCompileResult : public SkRefCnt {
 public:
     MtlCompileResult() : fCompiledObject(nil), fError(nil) {}
-    ~MtlCompileResult() = default;
     void set(id compiledObject, NSError* error) {
         SkAutoMutexExclusive automutex(fMutex);
         fCompiledObject = compiledObject;
@@ -269,6 +269,12 @@ uint32_t GrMtlFormatChannels(GrMTLPixelFormat mtlFormat) {
     }
 }
 
+SkImage::CompressionType GrMtlBackendFormatToCompressionType(const GrBackendFormat& format) {
+    MTLPixelFormat mtlFormat = GrBackendFormatAsMTLPixelFormat(format);
+    return GrMtlFormatToCompressionType(mtlFormat);
+}
+
+
 bool GrMtlFormatIsCompressed(MTLPixelFormat mtlFormat) {
     switch (mtlFormat) {
 #ifdef SK_BUILD_FOR_IOS
@@ -296,7 +302,7 @@ SkImage::CompressionType GrMtlFormatToCompressionType(MTLPixelFormat mtlFormat) 
     SkUNREACHABLE;
 }
 
-#if GR_TEST_UTILS
+#if defined(SK_DEBUG) || GR_TEST_UTILS
 bool GrMtlFormatIsBGRA8(GrMTLPixelFormat mtlFormat) {
     return mtlFormat == MTLPixelFormatBGRA8Unorm;
 }

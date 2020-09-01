@@ -75,7 +75,7 @@ public:
      * The bitmap is uploaded to the texture proxy assuming a kTopLeft_GrSurfaceOrigin.
      */
     sk_sp<GrTextureProxy> createProxyFromBitmap(const SkBitmap&,
-                                                GrMipMapped,
+                                                GrMipmapped,
                                                 SkBackingFit,
                                                 SkBudgeted);
 
@@ -86,7 +86,7 @@ public:
                                       SkISize dimensions,
                                       GrRenderable,
                                       int renderTargetSampleCnt,
-                                      GrMipMapped,
+                                      GrMipmapped,
                                       SkBackingFit,
                                       SkBudgeted,
                                       GrProtected,
@@ -98,7 +98,7 @@ public:
      */
     sk_sp<GrTextureProxy> createCompressedTextureProxy(SkISize dimensions,
                                                        SkBudgeted,
-                                                       GrMipMapped,
+                                                       GrMipmapped,
                                                        GrProtected,
                                                        SkImage::CompressionType,
                                                        sk_sp<SkData> data);
@@ -115,12 +115,12 @@ public:
                                              GrWrapOwnership,
                                              GrWrapCacheable,
                                              GrIOType,
-                                             ReleaseProc = nullptr,
-                                             ReleaseContext = nullptr);
+                                             sk_sp<GrRefCntedCallback> = nullptr);
 
-    sk_sp<GrTextureProxy> wrapCompressedBackendTexture(const GrBackendTexture&, GrWrapOwnership,
-                                                       GrWrapCacheable, ReleaseProc = nullptr,
-                                                       ReleaseContext = nullptr);
+    sk_sp<GrTextureProxy> wrapCompressedBackendTexture(const GrBackendTexture&,
+                                                       GrWrapOwnership,
+                                                       GrWrapCacheable,
+                                                       sk_sp<GrRefCntedCallback> releaseHelper);
 
     /*
      * Create a texture proxy that wraps a backend texture and is both texture-able and renderable
@@ -129,15 +129,13 @@ public:
                                                        int sampleCnt,
                                                        GrWrapOwnership,
                                                        GrWrapCacheable,
-                                                       ReleaseProc = nullptr,
-                                                       ReleaseContext = nullptr);
+                                                       sk_sp<GrRefCntedCallback> releaseHelper);
 
     /*
      * Create a render target proxy that wraps a backend render target
      */
     sk_sp<GrSurfaceProxy> wrapBackendRenderTarget(const GrBackendRenderTarget&,
-                                                  ReleaseProc = nullptr,
-                                                  ReleaseContext = nullptr);
+                                                  sk_sp<GrRefCntedCallback> releaseHelper);
 
     /*
      * Create a render target proxy that wraps a backend texture
@@ -153,7 +151,7 @@ public:
     using LazyInstantiateCallback = GrSurfaceProxy::LazyInstantiateCallback;
 
     struct TextureInfo {
-        GrMipMapped fMipMapped;
+        GrMipmapped fMipmapped;
         GrTextureType fTextureType;
     };
 
@@ -172,8 +170,8 @@ public:
                                           SkISize dimensions,
                                           GrRenderable,
                                           int renderTargetSampleCnt,
-                                          GrMipMapped,
-                                          GrMipMapsStatus,
+                                          GrMipmapped,
+                                          GrMipmapStatus,
                                           GrInternalSurfaceFlags,
                                           SkBackingFit,
                                           SkBudgeted,
@@ -187,7 +185,7 @@ public:
                                                            int renderTargetSampleCnt,
                                                            GrInternalSurfaceFlags,
                                                            const TextureInfo*,
-                                                           GrMipMapsStatus,
+                                                           GrMipmapStatus,
                                                            SkBackingFit,
                                                            SkBudgeted,
                                                            GrProtected,
@@ -222,6 +220,8 @@ public:
      * that it will never refer to the unique key again.
      */
     void processInvalidUniqueKey(const GrUniqueKey&, GrTextureProxy*, InvalidateGPUResource);
+
+    GrDDLProvider isDDLProvider() const;
 
     // TODO: remove these entry points - it is a bit sloppy to be getting context info from here
     uint32_t contextID() const;

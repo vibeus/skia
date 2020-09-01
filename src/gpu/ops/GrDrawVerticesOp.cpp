@@ -9,6 +9,7 @@
 #include "include/effects/SkRuntimeEffect.h"
 #include "src/core/SkArenaAlloc.h"
 #include "src/core/SkDevice.h"
+#include "src/core/SkMatrixPriv.h"
 #include "src/core/SkVerticesPriv.h"
 #include "src/gpu/GrOpFlushState.h"
 #include "src/gpu/GrProgramInfo.h"
@@ -58,21 +59,29 @@ static GrSLType SkVerticesAttributeToGrSLType(const SkVertices::Attribute& a) {
     SkUNREACHABLE;
 }
 
+static bool AttributeUsesViewMatrix(const SkVertices::Attribute& attr) {
+    return (attr.fMarkerID == 0) && (attr.fUsage == SkVertices::Attribute::Usage::kVector ||
+                                     attr.fUsage == SkVertices::Attribute::Usage::kNormalVector ||
+                                     attr.fUsage == SkVertices::Attribute::Usage::kPosition);
+}
+
 // Container for a collection of [uint32_t, Matrix] pairs. For a GrDrawVerticesOp whose custom
 // attributes reference some set of IDs, this stores the actual values of those matrices,
 // at the time the Op is created.
 class MarkedMatrices {
 public:
-    // For each ID required by 'info', fetch the value of that matrix from 'matrixProvider'
+    // For each ID required by 'info', fetch the value of that matrix from 'matrixProvider'.
+    // For vectors/normals/positions, we let ID 0 refer to the canvas CTM matrix.
     void gather(const SkVerticesPriv& info, const SkMatrixProvider& matrixProvider) {
         for (int i = 0; i < info.attributeCount(); ++i) {
-            if (uint32_t id = info.attributes()[i].fMarkerID) {
+            uint32_t id = info.attributes()[i].fMarkerID;
+            if (id != 0 || AttributeUsesViewMatrix(info.attributes()[i])) {
                 if (std::none_of(fMatrices.begin(), fMatrices.end(),
                                  [id](const auto& m) { return m.first == id; })) {
                     SkM44 matrix;
-                    // SkCanvas should guarantee that this succeeds
+                    // SkCanvas should guarantee that this succeeds.
                     SkAssertResult(matrixProvider.getLocalToMarker(id, &matrix));
-                    fMatrices.push_back({id, matrix});
+                    fMatrices.emplace_back(id, matrix);
                 }
             }
         }
@@ -177,12 +186,7 @@ public:
             // emit transforms using either explicit local coords or positions
             const auto& coordsAttr = gp.localCoordsAttr().isInitialized() ? gp.localCoordsAttr()
                                                                           : gp.positionAttr();
-            this->emitTransforms(vertBuilder,
-                                 varyingHandler,
-                                 uniformHandler,
-                                 coordsAttr.asShaderVar(),
-                                 SkMatrix::I(),
-                                 args.fFPCoordTransformHandler);
+            gpArgs->fLocalCoordVar = coordsAttr.asShaderVar();
 
             // Add varyings and globals for all custom attributes
             using Usage = SkVertices::Attribute::Usage;
@@ -195,7 +199,7 @@ public:
                 SkString varyingIn(attr.name());
 
                 UniformHandle matrixHandle;
-                if (customAttr.fMarkerID) {
+                if (customAttr.fMarkerID || AttributeUsesViewMatrix(customAttr)) {
                     bool normal = customAttr.fUsage == Usage::kNormalVector;
                     for (const MarkedUniform& matrixUni : fCustomMatrixUniforms) {
                         if (matrixUni.fID == customAttr.fMarkerID && matrixUni.fNormal == normal) {
@@ -213,10 +217,6 @@ public:
                                 {customAttr.fMarkerID, normal, matrixHandle});
                     }
                 }
-
-                // TODO: For now, vectors/normals/positions with a 0 markerID get no transform.
-                // Those should use localToDevice instead. That means we need to change batching
-                // logic and then guarantee that we have the view matrix as a uniform here.
 
                 switch (customAttr.fUsage) {
                     case Usage::kRaw:
@@ -302,7 +302,7 @@ public:
             const VerticesGP& vgp = gp.cast<VerticesGP>();
             uint32_t key = 0;
             key |= (vgp.fColorArrayType == ColorArrayType::kSkColor) ? 0x1 : 0;
-            key |= ComputePosKey(vgp.viewMatrix()) << 20;
+            key |= ComputeMatrixKey(vgp.viewMatrix()) << 20;
             b->add32(key);
             b->add32(GrColorSpaceXform::XformKey(vgp.fColorSpaceXform.get()));
 
@@ -315,22 +315,15 @@ public:
         }
 
         void setData(const GrGLSLProgramDataManager& pdman,
-                     const GrPrimitiveProcessor& gp,
-                     const CoordTransformRange& transformRange) override {
+                     const GrPrimitiveProcessor& gp) override {
             const VerticesGP& vgp = gp.cast<VerticesGP>();
 
-            if (!vgp.viewMatrix().isIdentity() &&
-                !SkMatrixPriv::CheapEqual(fViewMatrix, vgp.viewMatrix())) {
-                fViewMatrix = vgp.viewMatrix();
-                pdman.setSkMatrix(fViewMatrixUniform, fViewMatrix);
-            }
+            this->setTransform(pdman, fViewMatrixUniform, vgp.viewMatrix(), &fViewMatrix);
 
             if (!vgp.colorAttr().isInitialized() && vgp.color() != fColor) {
                 pdman.set4fv(fColorUniform, 1, vgp.color().vec());
                 fColor = vgp.color();
             }
-
-            this->setTransformDataHelper(SkMatrix::I(), pdman, transformRange);
 
             fColorSpaceHelper.setData(pdman, vgp.fColorSpaceXform.get());
 
@@ -462,10 +455,6 @@ public:
         }
     }
 
-#ifdef SK_DEBUG
-    SkString dumpInfo() const override;
-#endif
-
     FixedFunctionFlags fixedFunctionFlags() const override;
 
     GrProcessorSet::Analysis finalize(const GrCaps&, const GrAppliedClip*,
@@ -482,6 +471,9 @@ private:
 
     void onPrepareDraws(Target*) override;
     void onExecute(GrOpFlushState*, const SkRect& chainBounds) override;
+#if GR_TEST_UTILS
+    SkString onDumpInfo() const override;
+#endif
 
     GrGeometryProcessor* makeGP(SkArenaAlloc*);
 
@@ -588,14 +580,11 @@ DrawVerticesOp::DrawVerticesOp(const Helper::MakeArgs& helperArgs,
                                 zeroArea);
 }
 
-#ifdef SK_DEBUG
-SkString DrawVerticesOp::dumpInfo() const {
-    SkString string;
-    string.appendf("PrimType: %d, MeshCount %d, VCount: %d, ICount: %d\n", (int)fPrimitiveType,
-                   fMeshes.count(), fVertexCount, fIndexCount);
-    string += fHelper.dumpInfo();
-    string += INHERITED::dumpInfo();
-    return string;
+#if GR_TEST_UTILS
+SkString DrawVerticesOp::onDumpInfo() const {
+    return SkStringPrintf("PrimType: %d, MeshCount %d, VCount: %d, ICount: %d\n%s",
+                          (int)fPrimitiveType, fMeshes.count(), fVertexCount, fIndexCount,
+                          fHelper.dumpInfo().c_str());
 }
 #endif
 

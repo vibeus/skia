@@ -67,8 +67,7 @@ public:
     SkArenaAlloc(char* block, size_t blockSize, size_t firstHeapAllocation);
 
     explicit SkArenaAlloc(size_t firstHeapAllocation)
-        : SkArenaAlloc(nullptr, 0, firstHeapAllocation)
-    {}
+        : SkArenaAlloc(nullptr, 0, firstHeapAllocation) {}
 
     ~SkArenaAlloc();
 
@@ -101,12 +100,9 @@ public:
 
     template <typename T>
     T* makeArrayDefault(size_t count) {
-        AssertRelease(SkTFitsIn<uint32_t>(count));
-        uint32_t safeCount = ToU32(count);
-        T* array = (T*)this->commonArrayAlloc<T>(safeCount);
-
-        // If T is primitive then no initialization takes place.
-        for (size_t i = 0; i < safeCount; i++) {
+        T* array = this->allocUninitializedArray<T>(count);
+        for (size_t i = 0; i < count; i++) {
+            // Default initialization: if T is primitive then the value is left uninitialized.
             new (&array[i]) T;
         }
         return array;
@@ -114,14 +110,19 @@ public:
 
     template <typename T>
     T* makeArray(size_t count) {
-        AssertRelease(SkTFitsIn<uint32_t>(count));
-        uint32_t safeCount = ToU32(count);
-        T* array = (T*)this->commonArrayAlloc<T>(safeCount);
-
-        // If T is primitive then the memory is initialized. For example, an array of chars will
-        // be zeroed.
-        for (size_t i = 0; i < safeCount; i++) {
+        T* array = this->allocUninitializedArray<T>(count);
+        for (size_t i = 0; i < count; i++) {
+            // Value initialization: if T is primitive then the value is zero-initialized.
             new (&array[i]) T();
+        }
+        return array;
+    }
+
+    template <typename T, typename Initializer>
+    T* makeInitializedArray(size_t count, Initializer initializer) {
+        T* array = this->allocUninitializedArray<T>(count);
+        for (size_t i = 0; i < count; i++) {
+            new (&array[i]) T(initializer(i));
         }
         return array;
     }
@@ -133,9 +134,6 @@ public:
         fCursor = objStart + size;
         return objStart;
     }
-
-    // Destroy all allocated objects, free any heap allocations.
-    void reset();
 
 private:
     static void AssertRelease(bool cond) { if (!cond) { ::abort(); } }
@@ -172,7 +170,10 @@ private:
     char* allocObjectWithFooter(uint32_t sizeIncludingFooter, uint32_t alignment);
 
     template <typename T>
-    char* commonArrayAlloc(uint32_t count) {
+    T* allocUninitializedArray(size_t countZ) {
+        AssertRelease(SkTFitsIn<uint32_t>(countZ));
+        uint32_t count = ToU32(countZ);
+
         char* objStart;
         AssertRelease(count <= std::numeric_limits<uint32_t>::max() / sizeof(T));
         uint32_t arraySize = ToU32(count * sizeof(T));
@@ -208,20 +209,44 @@ private:
                 padding);
         }
 
-        return objStart;
+        return (T*)objStart;
     }
 
     char*          fDtorCursor;
     char*          fCursor;
     char*          fEnd;
+
+    // We found allocating strictly doubling amounts of memory from the heap left too
+    // much unused slop, particularly on Android.  Instead we'll follow a Fibonacci-like
+    // progression that's simple to implement and grows with roughly a 1.6 exponent:
+    //
+    // To start,
+    //    fNextHeapAlloc = fYetNextHeapAlloc = 1*fFirstHeapAllocationSize;
+    //
+    // And then when we do allocate, follow a Fibonacci f(n+2) = f(n+1) + f(n) rule:
+    //    void* block = malloc(fNextHeapAlloc);
+    //    std::swap(fNextHeapAlloc, fYetNextHeapAlloc)
+    //    fYetNextHeapAlloc += fNextHeapAlloc;
+    //
+    // That makes the nth allocation fib(n) * fFirstHeapAllocationSize bytes.
+    uint32_t fNextHeapAlloc,     // How many bytes minimum will we allocate next from the heap?
+    fYetNextHeapAlloc;           // And then how many the next allocation after that?
+};
+
+class SkArenaAllocWithReset : public SkArenaAlloc {
+public:
+    SkArenaAllocWithReset(char* block, size_t blockSize, size_t firstHeapAllocation);
+
+    explicit SkArenaAllocWithReset(size_t firstHeapAllocation)
+            : SkArenaAllocWithReset(nullptr, 0, firstHeapAllocation) {}
+
+    // Destroy all allocated objects, free any heap allocations.
+    void reset();
+
+private:
     char* const    fFirstBlock;
     const uint32_t fFirstSize;
     const uint32_t fFirstHeapAllocationSize;
-
-    // Use the Fibonacci sequence as the growth factor for block size. The size of the block
-    // allocated is fFib0 * fFirstHeapAllocationSize. Using 2 ^ n * fFirstHeapAllocationSize
-    // had too much slop for Android.
-    uint32_t       fFib0 {1}, fFib1 {1};
 };
 
 // Helper for defining allocators with inline/reserved storage.
@@ -234,6 +259,14 @@ class SkSTArenaAlloc : private std::array<char, InlineStorageSize>, public SkAre
 public:
     explicit SkSTArenaAlloc(size_t firstHeapAllocation = InlineStorageSize)
         : SkArenaAlloc{this->data(), this->size(), firstHeapAllocation} {}
+};
+
+template <size_t InlineStorageSize>
+class SkSTArenaAllocWithReset
+        : private std::array<char, InlineStorageSize>, public SkArenaAllocWithReset {
+public:
+    explicit SkSTArenaAllocWithReset(size_t firstHeapAllocation = InlineStorageSize)
+            : SkArenaAllocWithReset{this->data(), this->size(), firstHeapAllocation} {}
 };
 
 #endif  // SkArenaAlloc_DEFINED

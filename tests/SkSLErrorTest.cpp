@@ -37,6 +37,15 @@ static void test_success(skiatest::Reporter* r, const char* src) {
     REPORTER_ASSERT(r, program);
 }
 
+DEF_TEST(SkSLConstVariableComparison, r) {
+    test_success(r,
+                 "void main() {"
+                 "  const float4 a = float4(0);"
+                 "  const float4 b = float4(1);"
+                 "  if (a == b) { discard; }"
+                 "}");
+}
+
 DEF_TEST(SkSLOpenArray, r) {
     test_failure(r,
                  "void main(inout float4 color) { color.r[ = ( color.g ); }",
@@ -142,16 +151,35 @@ DEF_TEST(SkSLConstructorArgumentCount, r) {
                  "4)\n1 error\n");
 }
 
-DEF_TEST(SkSLSwizzleScalar, r) {
-    test_failure(r,
-                 "void main() { float x = 1; float y = x.y; }",
-                 "error: 1: cannot swizzle value of type 'float'\n1 error\n");
-}
-
 DEF_TEST(SkSLSwizzleMatrix, r) {
     test_failure(r,
                  "void main() { float2x2 x = float2x2(1); float y = x.y; }",
                  "error: 1: cannot swizzle value of type 'float2x2'\n1 error\n");
+}
+
+DEF_TEST(SkSLResizeMatrix, r) {
+    test_success(r,
+                 "void main() { float2x2 x = float2x2(float3x3(1)); float y = x[0][0]; }" );
+    test_success(r,
+                 "void main() { float2x2 x = float2x2(float4x4(1)); float y = x[0][0]; }" );
+    test_success(r,
+                 "void main() { float3x3 x = float3x3(float4x4(1)); float y = x[0][0]; }" );
+    test_success(r,
+                 "void main() { float3x3 x = float3x3(float2x2(1)); float y = x[0][0]; }" );
+    test_success(r,
+                 "void main() { float3x3 x = float3x3(float2x3(1)); float y = x[0][0]; }" );
+    test_success(r,
+                 "void main() { float3x3 x = float3x3(float3x2(1)); float y = x[0][0]; }" );
+    test_success(r,
+                 "void main() { float4x4 x = float4x4(float3x3(float2x2(1))); float y = x[0][0]; }" );
+    test_success(r,
+                 "void main() { float4x4 x = float4x4(float4x3(float4x2(1))); float y = x[0][0]; }" );
+    test_success(r,
+                 "void main() { float4x4 x = float4x4(float3x4(float2x4(1))); float y = x[0][0]; }" );
+    test_success(r,
+                 "void main() { float2x4 x = float2x4(float4x2(1)); float y = x[0][0]; }" );
+    test_success(r,
+                 "void main() { float4x2 x = float4x2(float2x4(1)); float y = x[0][0]; }" );
 }
 
 DEF_TEST(SkSLSwizzleOutOfBounds, r) {
@@ -176,6 +204,12 @@ DEF_TEST(SkSLSwizzleConstantOutput, r) {
     test_failure(r,
                  "void main() { float4 test = float4(1); test.xyz0 = float4(1); }",
                  "error: 1: cannot write to a swizzle mask containing a constant\n1 error\n");
+}
+
+DEF_TEST(SkSLSwizzleOnlyLiterals, r) {
+    test_failure(r,
+                 "void main() { float x = 1.0; x = x.0; }",
+                 "error: 1: swizzle must refer to base expression\n1 error\n");
 }
 
 DEF_TEST(SkSLAssignmentTypeMismatch, r) {
@@ -332,7 +366,7 @@ DEF_TEST(SkSLTernaryMismatch, r) {
 DEF_TEST(SkSLInterfaceBlockStorageModifiers, r) {
     test_failure(r,
                  "uniform foo { out int x; };",
-                 "error: 1: interface block fields may not have storage qualifiers\n1 error\n");
+                 "error: 1: 'out' is not permitted here\n1 error\n");
 }
 
 DEF_TEST(SkSLUseWithoutInitialize, r) {
@@ -371,7 +405,7 @@ DEF_TEST(SkSLUnreachable, r) {
                  "void main() { if (true) return; else discard; return; }",
                  "error: 1: unreachable\n1 error\n");
     test_failure(r,
-                 "void main() { return; while (true); }",
+                 "void main() { return; main(); }",
                  "error: 1: unreachable\n1 error\n");
 }
 
@@ -449,12 +483,36 @@ DEF_TEST(SkSLWrongSwitchTypes, r) {
     test_failure(r,
                  "void main() { switch (1) { case float2(1): break; } }",
                  "error: 1: expected 'int', but found 'float2'\n1 error\n");
+    test_failure(r,
+                 "void main() { switch (1) { case 0.5: break; } }",
+                 "error: 1: expected 'int', but found 'float'\n1 error\n");
+    test_failure(r,
+                 "void main() { switch (1) { case 1.0: break; } }",
+                 "error: 1: expected 'int', but found 'float'\n1 error\n");
+    test_failure(r,
+                 "uniform float x = 1; void main() { switch (1) { case x: break; } }",
+                 "error: 1: expected 'int', but found 'float'\n1 error\n");
+    test_failure(r,
+                 "const float x = 1; void main() { switch (1) { case x: break; } }",
+                 "error: 1: expected 'int', but found 'float'\n1 error\n");
+    test_failure(r,
+                 "const float x = 1; void main() { switch (x) { case 1: break; } }",
+                 "error: 1: expected 'int', but found 'float'\n1 error\n");
+    test_success(r,
+                 "const int x = 1; void main() { switch (x) { case 1: break; } }");
 }
 
 DEF_TEST(SkSLNonConstantCase, r) {
     test_failure(r,
+                 "uniform int x = 1; void main() { switch (1) { case x: break; } }",
+                 "error: 1: case value must be a constant integer\n1 error\n");
+    test_failure(r,
                  "void main() { int x = 1; switch (1) { case x: break; } }",
-                 "error: 1: case value must be a constant\n1 error\n");
+                 "error: 1: case value must be a constant integer\n1 error\n");
+    test_success(r,
+                 "uniform int x = 1; void main() { switch (x) { case 1: break; } }");
+    test_success(r,
+                 "void main() { const int x = 1; switch (1) { case x: break; } }");
 }
 
 DEF_TEST(SkSLDuplicateCase, r) {
@@ -527,4 +585,81 @@ DEF_TEST(SkSLSpuriousFloat, r) {
     test_failure(r,
                  "void main() { float x; x = 1.5 2.5; }",
                  "error: 1: expected ';', but found '2.5'\n1 error\n");
+}
+
+DEF_TEST(SkSLMustBeConstantIntegralEnum, r) {
+    test_failure(r,
+                 "enum class E { a = 0.5 }; void main() {}",
+                 "error: 1: enum value must be a constant integer\n1 error\n");
+    test_failure(r,
+                 "enum class E { a = float(1) }; void main() {}",
+                 "error: 1: enum value must be a constant integer\n1 error\n");
+    test_failure(r,
+                 "enum class E { a = 1.0 }; void main() {}",
+                 "error: 1: enum value must be a constant integer\n1 error\n");
+    test_failure(r,
+                 "uniform float f; enum class E { a = f }; void main() {}",
+                 "error: 1: enum value must be a constant integer\n1 error\n");
+    test_failure(r,
+                 "const float f = 1.0; enum class E { a = f }; void main() {}",
+                 "error: 1: enum value must be a constant integer\n1 error\n");
+    test_failure(r,
+                 "uniform int i; enum class E { a = i }; void main() {}",
+                 "error: 1: enum value must be a constant integer\n1 error\n");
+    test_success(r,
+                 "const int i = 1; enum class E { a = i }; void main() {}");
+    test_success(r,
+                 "enum class E { a = 1 }; void main() {}");
+}
+
+DEF_TEST(SkSLBadModifiers, r) {
+    test_failure(r,
+                 "const in out uniform flat noperspective readonly writeonly coherent volatile "
+                 "restrict buffer sk_has_side_effects __pixel_localEXT __pixel_local_inEXT "
+                 "__pixel_local_outEXT varying void main() {}",
+                 "error: 1: 'const' is not permitted here\n"
+                 "error: 1: 'in' is not permitted here\n"
+                 "error: 1: 'out' is not permitted here\n"
+                 "error: 1: 'uniform' is not permitted here\n"
+                 "error: 1: 'flat' is not permitted here\n"
+                 "error: 1: 'noperspective' is not permitted here\n"
+                 "error: 1: 'readonly' is not permitted here\n"
+                 "error: 1: 'writeonly' is not permitted here\n"
+                 "error: 1: 'coherent' is not permitted here\n"
+                 "error: 1: 'volatile' is not permitted here\n"
+                 "error: 1: 'restrict' is not permitted here\n"
+                 "error: 1: 'buffer' is not permitted here\n"
+                 "error: 1: '__pixel_localEXT' is not permitted here\n"
+                 "error: 1: '__pixel_local_inEXT' is not permitted here\n"
+                 "error: 1: '__pixel_local_outEXT' is not permitted here\n"
+                 "error: 1: 'varying' is not permitted here\n"
+                 "16 errors\n");
+    test_failure(r,
+                 "void test(const in out uniform flat noperspective readonly writeonly coherent "
+                 "volatile restrict buffer sk_has_side_effects __pixel_localEXT "
+                 "__pixel_local_inEXT __pixel_local_outEXT varying float test) {}",
+                 "error: 1: 'const' is not permitted here\n"
+                 "error: 1: 'uniform' is not permitted here\n"
+                 "error: 1: 'flat' is not permitted here\n"
+                 "error: 1: 'noperspective' is not permitted here\n"
+                 "error: 1: 'readonly' is not permitted here\n"
+                 "error: 1: 'writeonly' is not permitted here\n"
+                 "error: 1: 'coherent' is not permitted here\n"
+                 "error: 1: 'volatile' is not permitted here\n"
+                 "error: 1: 'restrict' is not permitted here\n"
+                 "error: 1: 'buffer' is not permitted here\n"
+                 "error: 1: 'sk_has_side_effects' is not permitted here\n"
+                 "error: 1: '__pixel_localEXT' is not permitted here\n"
+                 "error: 1: '__pixel_local_inEXT' is not permitted here\n"
+                 "error: 1: '__pixel_local_outEXT' is not permitted here\n"
+                 "error: 1: 'varying' is not permitted here\n"
+                 "15 errors\n");
+    test_failure(r,
+                 "const in out uniform flat noperspective readonly writeonly coherent volatile "
+                 "restrict buffer sk_has_side_effects __pixel_localEXT "
+                 "__pixel_local_inEXT __pixel_local_outEXT varying float test;",
+                 "error: 1: 'in uniform' variables only permitted within fragment processors\n"
+                 "error: 1: 'varying' is only permitted in runtime effects\n"
+                 "error: 1: 'sk_has_side_effects' is not permitted here\n"
+                 "3 errors\n");
 }

@@ -15,6 +15,7 @@
 #include "src/core/SkCanvasPriv.h"
 #include "src/utils/SkPatchUtils.h"
 
+#include <memory>
 #include <new>
 
 SkDrawableList::~SkDrawableList() {
@@ -178,7 +179,7 @@ void SkRecorder::onDrawDRRect(const SkRRect& outer, const SkRRect& inner, const 
 void SkRecorder::onDrawDrawable(SkDrawable* drawable, const SkMatrix* matrix) {
     if (fDrawPictureMode == Record_DrawPictureMode) {
         if (!fDrawableList) {
-            fDrawableList.reset(new SkDrawableList);
+            fDrawableList = std::make_unique<SkDrawableList>();
         }
         fDrawableList->append(drawable);
         this->append<SkRecords::DrawDrawable>(this->copy(matrix), drawable->getBounds(), fDrawableList->count() - 1);
@@ -316,8 +317,6 @@ SkCanvas::SaveLayerStrategy SkRecorder::getSaveLayerStrategy(const SaveLayerRec&
     this->append<SkRecords::SaveLayer>(this->copy(rec.fBounds)
                     , this->copy(rec.fPaint)
                     , sk_ref_sp(rec.fBackdrop)
-                    , sk_ref_sp(rec.fClipMask)
-                    , this->copy(rec.fClipMatrix)
                     , rec.fSaveLayerFlags);
     return SkCanvas::kNoLayer_SaveLayerStrategy;
 }

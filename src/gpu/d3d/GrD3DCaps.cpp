@@ -10,6 +10,7 @@
 #include "include/gpu/d3d/GrD3DTypes.h"
 
 #include "src/core/SkCompressedDataUtils.h"
+#include "src/gpu/GrBackendUtils.h"
 #include "src/gpu/GrProgramDesc.h"
 #include "src/gpu/GrProgramInfo.h"
 #include "src/gpu/GrShaderCaps.h"
@@ -26,16 +27,17 @@ GrD3DCaps::GrD3DCaps(const GrContextOptions& contextOptions, IDXGIAdapter1* adap
     /**************************************************************************
      * GrCaps fields
      **************************************************************************/
-    fMipMapSupport = true;   // always available in Direct3D
+    fMipmapSupport = true;   // always available in Direct3D
     fNPOTTextureTileSupport = true;  // available in feature level 10_0 and up
     fReuseScratchTextures = true; //TODO: figure this out
     fGpuTracingSupport = false; //TODO: figure this out
     fOversizedStencilSupport = false; //TODO: figure this out
     fDrawInstancedSupport = true;
+    fNativeDrawIndirectSupport = true;
 
+    fSemaphoreSupport = true;
+    fFenceSyncSupport = true;
     // TODO: implement these
-    fSemaphoreSupport = false;
-    fFenceSyncSupport = false;
     fCrossContextTextureSupport = false;
     fHalfFloatVertexAttributeSupport = false;
 
@@ -53,9 +55,6 @@ GrD3DCaps::GrD3DCaps(const GrContextOptions& contextOptions, IDXGIAdapter1* adap
     // TODO: implement
     fDynamicStateArrayGeometryProcessorTextureSupport = false;
 
-    // TODO: Can re-enable when fillRectToRect draw with shader works
-    fAvoidWritePixelsFastPath = true;
-
     fShaderCaps.reset(new GrShaderCaps(contextOptions));
 
     this->init(contextOptions, adapter, device);
@@ -72,8 +71,22 @@ bool GrD3DCaps::canCopyTexture(DXGI_FORMAT dstFormat, int dstSampleCnt,
 
 bool GrD3DCaps::canCopyAsResolve(DXGI_FORMAT dstFormat, int dstSampleCnt,
                                  DXGI_FORMAT srcFormat, int srcSampleCnt) const {
-    // TODO
-    return false;
+    // The src surface must be multisampled.
+    if (srcSampleCnt <= 1) {
+        return false;
+    }
+
+    // The dst must not be multisampled.
+    if (dstSampleCnt > 1) {
+        return false;
+    }
+
+    // Surfaces must have the same format.
+    if (srcFormat != dstFormat) {
+        return false;
+    }
+
+    return true;
 }
 
 bool GrD3DCaps::onCanCopySurface(const GrSurfaceProxy* dst, const GrSurfaceProxy* src,
@@ -112,25 +125,18 @@ void GrD3DCaps::init(const GrContextOptions& contextOptions, IDXGIAdapter1* adap
     D3D12_FEATURE_DATA_FEATURE_LEVELS flDesc = {};
     flDesc.NumFeatureLevels = _countof(featureLevels);
     flDesc.pFeatureLevelsRequested = featureLevels;
-    SkDEBUGCODE(HRESULT hr =) device->CheckFeatureSupport(D3D12_FEATURE_FEATURE_LEVELS, &flDesc,
-                                                          sizeof(flDesc));
-    SkASSERT(SUCCEEDED(hr));
+    GR_D3D_CALL_ERRCHECK(device->CheckFeatureSupport(D3D12_FEATURE_FEATURE_LEVELS, &flDesc,
+                                                     sizeof(flDesc)));
     // This had better be true
     SkASSERT(flDesc.MaxSupportedFeatureLevel >= D3D_FEATURE_LEVEL_11_0);
 
     DXGI_ADAPTER_DESC adapterDesc;
-    SkDEBUGCODE(hr =) adapter->GetDesc(&adapterDesc);
-    SkASSERT(SUCCEEDED(hr));
+    GR_D3D_CALL_ERRCHECK(adapter->GetDesc(&adapterDesc));
 
     D3D12_FEATURE_DATA_D3D12_OPTIONS optionsDesc;
-    SkDEBUGCODE(hr =) device->CheckFeatureSupport(D3D12_FEATURE_D3D12_OPTIONS, &optionsDesc,
-                                     sizeof(optionsDesc));
-    SkASSERT(SUCCEEDED(hr));
+    GR_D3D_CALL_ERRCHECK(device->CheckFeatureSupport(D3D12_FEATURE_D3D12_OPTIONS, &optionsDesc,
+                                                     sizeof(optionsDesc)));
 
-    D3D12_FEATURE_DATA_D3D12_OPTIONS2 options2Desc;
-    SkDEBUGCODE(hr =) device->CheckFeatureSupport(D3D12_FEATURE_D3D12_OPTIONS2, &options2Desc,
-                                     sizeof(options2Desc));
-    SkASSERT(SUCCEEDED(hr));
 
     // See https://docs.microsoft.com/en-us/windows/win32/direct3d12/hardware-support
     if (D3D12_RESOURCE_BINDING_TIER_1 == optionsDesc.ResourceBindingTier) {
@@ -147,7 +153,7 @@ void GrD3DCaps::init(const GrContextOptions& contextOptions, IDXGIAdapter1* adap
         fMaxPerStageShaderResourceViews = 2032;
     }
 
-    this->initGrCaps(optionsDesc, options2Desc);
+    this->initGrCaps(optionsDesc, device);
     this->initShaderCaps(adapterDesc.VendorId, optionsDesc);
 
     this->initFormatTable(adapterDesc, device);
@@ -161,15 +167,18 @@ void GrD3DCaps::init(const GrContextOptions& contextOptions, IDXGIAdapter1* adap
 }
 
 void GrD3DCaps::initGrCaps(const D3D12_FEATURE_DATA_D3D12_OPTIONS& optionsDesc,
-                           const D3D12_FEATURE_DATA_D3D12_OPTIONS2& options2Desc) {
+                           ID3D12Device* device) {
     // We assume a minimum of Shader Model 5.1, which allows at most 32 vertex inputs.
     fMaxVertexAttributes = 32;
 
-    // TODO: we can set locations but not sure if we can query them
-    fSampleLocationsSupport = false;
+    // Can use standard sample locations
+    fSampleLocationsSupport = true;
 
-    if (D3D12_PROGRAMMABLE_SAMPLE_POSITIONS_TIER_NOT_SUPPORTED !=
-            options2Desc.ProgrammableSamplePositionsTier) {
+    D3D12_FEATURE_DATA_D3D12_OPTIONS2 options2Desc;
+    if (SUCCEEDED(device->CheckFeatureSupport(D3D12_FEATURE_D3D12_OPTIONS2, &options2Desc,
+                                              sizeof(options2Desc))) &&
+        options2Desc.ProgrammableSamplePositionsTier !=
+                D3D12_PROGRAMMABLE_SAMPLE_POSITIONS_TIER_NOT_SUPPORTED) {
         // We "disable" multisample by colocating all samples at pixel center.
         fMultisampleDisableSupport = true;
     }
@@ -252,10 +261,9 @@ void GrD3DCaps::applyDriverCorrectnessWorkarounds(int vendorID) {
 bool stencil_format_supported(ID3D12Device* device, DXGI_FORMAT format) {
     D3D12_FEATURE_DATA_FORMAT_SUPPORT formatSupportDesc;
     formatSupportDesc.Format = format;
-    SkDEBUGCODE(HRESULT hr = ) device->CheckFeatureSupport(D3D12_FEATURE_FORMAT_SUPPORT,
-                                                           &formatSupportDesc,
-                                                           sizeof(formatSupportDesc));
-    SkASSERT(SUCCEEDED(hr));
+    GR_D3D_CALL_ERRCHECK(device->CheckFeatureSupport(D3D12_FEATURE_FORMAT_SUPPORT,
+                                                     &formatSupportDesc,
+                                                     sizeof(formatSupportDesc)));
     return SkToBool(D3D12_FORMAT_SUPPORT1_DEPTH_STENCIL & formatSupportDesc.Support1);
 }
 
@@ -356,6 +364,7 @@ void GrD3DCaps::initFormatTable(const DXGI_ADAPTER_DESC& adapterDesc, ID3D12Devi
         auto& info = this->getFormatInfo(format);
         info.init(adapterDesc, device, format);
         info.fBytesPerPixel = 4;
+        info.fFormatColorType = GrColorType::kRGBA_8888;
         if (SkToBool(info.fFlags & FormatInfo::kTexturable_Flag)) {
             info.fColorTypeInfoCount = 2;
             info.fColorTypeInfos.reset(new ColorTypeInfo[info.fColorTypeInfoCount]());
@@ -384,6 +393,7 @@ void GrD3DCaps::initFormatTable(const DXGI_ADAPTER_DESC& adapterDesc, ID3D12Devi
         auto& info = this->getFormatInfo(format);
         info.init(adapterDesc, device, format);
         info.fBytesPerPixel = 1;
+        info.fFormatColorType = GrColorType::kR_8;
         if (SkToBool(info.fFlags & FormatInfo::kTexturable_Flag)) {
             info.fColorTypeInfoCount = 2;
             info.fColorTypeInfos.reset(new ColorTypeInfo[info.fColorTypeInfoCount]());
@@ -413,6 +423,7 @@ void GrD3DCaps::initFormatTable(const DXGI_ADAPTER_DESC& adapterDesc, ID3D12Devi
         auto& info = this->getFormatInfo(format);
         info.init(adapterDesc, device, format);
         info.fBytesPerPixel = 4;
+        info.fFormatColorType = GrColorType::kBGRA_8888;
         if (SkToBool(info.fFlags & FormatInfo::kTexturable_Flag)) {
             info.fColorTypeInfoCount = 1;
             info.fColorTypeInfos.reset(new ColorTypeInfo[info.fColorTypeInfoCount]());
@@ -432,6 +443,7 @@ void GrD3DCaps::initFormatTable(const DXGI_ADAPTER_DESC& adapterDesc, ID3D12Devi
         auto& info = this->getFormatInfo(format);
         info.init(adapterDesc, device, format);
         info.fBytesPerPixel = 2;
+        info.fFormatColorType = GrColorType::kBGR_565;
         if (SkToBool(info.fFlags & FormatInfo::kTexturable_Flag)) {
             info.fColorTypeInfoCount = 1;
             info.fColorTypeInfos.reset(new ColorTypeInfo[info.fColorTypeInfoCount]());
@@ -451,6 +463,7 @@ void GrD3DCaps::initFormatTable(const DXGI_ADAPTER_DESC& adapterDesc, ID3D12Devi
         auto& info = this->getFormatInfo(format);
         info.init(adapterDesc, device, format);
         info.fBytesPerPixel = 8;
+        info.fFormatColorType = GrColorType::kRGBA_F16;
         if (SkToBool(info.fFlags & FormatInfo::kTexturable_Flag)) {
             info.fColorTypeInfoCount = 2;
             info.fColorTypeInfos.reset(new ColorTypeInfo[info.fColorTypeInfoCount]());
@@ -477,6 +490,7 @@ void GrD3DCaps::initFormatTable(const DXGI_ADAPTER_DESC& adapterDesc, ID3D12Devi
         auto& info = this->getFormatInfo(format);
         info.init(adapterDesc, device, format);
         info.fBytesPerPixel = 2;
+        info.fFormatColorType = GrColorType::kR_F16;
         if (SkToBool(info.fFlags & FormatInfo::kTexturable_Flag)) {
             info.fColorTypeInfoCount = 1;
             info.fColorTypeInfos.reset(new ColorTypeInfo[info.fColorTypeInfoCount]());
@@ -498,6 +512,7 @@ void GrD3DCaps::initFormatTable(const DXGI_ADAPTER_DESC& adapterDesc, ID3D12Devi
         auto& info = this->getFormatInfo(format);
         info.init(adapterDesc, device, format);
         info.fBytesPerPixel = 2;
+        info.fFormatColorType = GrColorType::kRG_88;
         if (SkToBool(info.fFlags & FormatInfo::kTexturable_Flag)) {
             info.fColorTypeInfoCount = 1;
             info.fColorTypeInfos.reset(new ColorTypeInfo[info.fColorTypeInfoCount]());
@@ -517,6 +532,7 @@ void GrD3DCaps::initFormatTable(const DXGI_ADAPTER_DESC& adapterDesc, ID3D12Devi
         auto& info = this->getFormatInfo(format);
         info.init(adapterDesc, device, format);
         info.fBytesPerPixel = 4;
+        info.fFormatColorType = GrColorType::kRGBA_1010102;
         if (SkToBool(info.fFlags & FormatInfo::kTexturable_Flag)) {
             info.fColorTypeInfoCount = 1;
             info.fColorTypeInfos.reset(new ColorTypeInfo[info.fColorTypeInfoCount]());
@@ -536,6 +552,7 @@ void GrD3DCaps::initFormatTable(const DXGI_ADAPTER_DESC& adapterDesc, ID3D12Devi
         auto& info = this->getFormatInfo(format);
         info.init(adapterDesc, device, format);
         info.fBytesPerPixel = 2;
+        info.fFormatColorType = GrColorType::kBGRA_4444;
         if (SkToBool(info.fFlags & FormatInfo::kTexturable_Flag)) {
             info.fColorTypeInfoCount = 1;
             info.fColorTypeInfos.reset(new ColorTypeInfo[info.fColorTypeInfoCount]());
@@ -546,8 +563,8 @@ void GrD3DCaps::initFormatTable(const DXGI_ADAPTER_DESC& adapterDesc, ID3D12Devi
                 auto& ctInfo = info.fColorTypeInfos[ctIdx++];
                 ctInfo.fColorType = ct;
                 ctInfo.fFlags = ColorTypeInfo::kUploadData_Flag | ColorTypeInfo::kRenderable_Flag;
-                ctInfo.fReadSwizzle = GrSwizzle("bgra");
-                ctInfo.fWriteSwizzle = GrSwizzle("bgra");
+                ctInfo.fReadSwizzle = GrSwizzle("argb");
+                ctInfo.fWriteSwizzle = GrSwizzle("gbar");
             }
         }
     }
@@ -557,6 +574,7 @@ void GrD3DCaps::initFormatTable(const DXGI_ADAPTER_DESC& adapterDesc, ID3D12Devi
         auto& info = this->getFormatInfo(format);
         info.init(adapterDesc, device, format);
         info.fBytesPerPixel = 4;
+        info.fFormatColorType = GrColorType::kRGBA_8888_SRGB;
         if (SkToBool(info.fFlags & FormatInfo::kTexturable_Flag)) {
             info.fColorTypeInfoCount = 1;
             info.fColorTypeInfos.reset(new ColorTypeInfo[info.fColorTypeInfoCount]());
@@ -576,6 +594,7 @@ void GrD3DCaps::initFormatTable(const DXGI_ADAPTER_DESC& adapterDesc, ID3D12Devi
         auto& info = this->getFormatInfo(format);
         info.init(adapterDesc, device, format);
         info.fBytesPerPixel = 2;
+        info.fFormatColorType = GrColorType::kR_16;
         if (SkToBool(info.fFlags & FormatInfo::kTexturable_Flag)) {
             info.fColorTypeInfoCount = 1;
             info.fColorTypeInfos.reset(new ColorTypeInfo[info.fColorTypeInfoCount]());
@@ -597,6 +616,7 @@ void GrD3DCaps::initFormatTable(const DXGI_ADAPTER_DESC& adapterDesc, ID3D12Devi
         auto& info = this->getFormatInfo(format);
         info.init(adapterDesc, device, format);
         info.fBytesPerPixel = 4;
+        info.fFormatColorType = GrColorType::kRG_1616;
         if (SkToBool(info.fFlags & FormatInfo::kTexturable_Flag)) {
             info.fColorTypeInfoCount = 1;
             info.fColorTypeInfos.reset(new ColorTypeInfo[info.fColorTypeInfoCount]());
@@ -616,6 +636,7 @@ void GrD3DCaps::initFormatTable(const DXGI_ADAPTER_DESC& adapterDesc, ID3D12Devi
         auto& info = this->getFormatInfo(format);
         info.init(adapterDesc, device, format);
         info.fBytesPerPixel = 8;
+        info.fFormatColorType = GrColorType::kRGBA_16161616;
         if (SkToBool(info.fFlags & FormatInfo::kTexturable_Flag)) {
             info.fColorTypeInfoCount = 1;
             info.fColorTypeInfos.reset(new ColorTypeInfo[info.fColorTypeInfoCount]());
@@ -635,6 +656,7 @@ void GrD3DCaps::initFormatTable(const DXGI_ADAPTER_DESC& adapterDesc, ID3D12Devi
         auto& info = this->getFormatInfo(format);
         info.init(adapterDesc, device, format);
         info.fBytesPerPixel = 4;
+        info.fFormatColorType = GrColorType::kRG_F16;
         if (SkToBool(info.fFlags & FormatInfo::kTexturable_Flag)) {
             info.fColorTypeInfoCount = 1;
             info.fColorTypeInfos.reset(new ColorTypeInfo[info.fColorTypeInfoCount]());
@@ -707,9 +729,9 @@ static bool multisample_count_supported(ID3D12Device* device, DXGI_FORMAT format
     D3D12_FEATURE_DATA_MULTISAMPLE_QUALITY_LEVELS msqLevels;
     msqLevels.Format = format;
     msqLevels.SampleCount = sampleCount;
-    SkDEBUGCODE(HRESULT hr =) device->CheckFeatureSupport(D3D12_FEATURE_MULTISAMPLE_QUALITY_LEVELS,
-                                                          &msqLevels, sizeof(msqLevels));
-    SkASSERT(SUCCEEDED(hr));
+    msqLevels.Flags = D3D12_MULTISAMPLE_QUALITY_LEVELS_FLAG_NONE;
+    GR_D3D_CALL_ERRCHECK(device->CheckFeatureSupport(D3D12_FEATURE_MULTISAMPLE_QUALITY_LEVELS,
+                                                     &msqLevels, sizeof(msqLevels)));
 
     return msqLevels.NumQualityLevels > 0;
 }
@@ -748,10 +770,9 @@ void GrD3DCaps::FormatInfo::init(const DXGI_ADAPTER_DESC& adapterDesc, ID3D12Dev
                                  DXGI_FORMAT format) {
     D3D12_FEATURE_DATA_FORMAT_SUPPORT formatSupportDesc;
     formatSupportDesc.Format = format;
-    SkDEBUGCODE(HRESULT hr =) device->CheckFeatureSupport(D3D12_FEATURE_FORMAT_SUPPORT,
-                                                          &formatSupportDesc,
-                                                          sizeof(formatSupportDesc));
-    SkASSERT(SUCCEEDED(hr));
+    GR_D3D_CALL_ERRCHECK(device->CheckFeatureSupport(D3D12_FEATURE_FORMAT_SUPPORT,
+                                                     &formatSupportDesc,
+                                                     sizeof(formatSupportDesc)));
 
     InitFormatFlags(formatSupportDesc, &fFlags);
     if (fFlags & kRenderable_Flag) {
@@ -771,20 +792,6 @@ bool GrD3DCaps::isFormatSRGB(const GrBackendFormat& format) const {
         default:
             return false;
     }
-}
-
-SkImage::CompressionType GrD3DCaps::compressionType(const GrBackendFormat& format) const {
-    DXGI_FORMAT dxgiFormat;
-    if (!format.asDxgiFormat(&dxgiFormat)) {
-        return SkImage::CompressionType::kNone;
-    }
-
-    switch (dxgiFormat) {
-        case DXGI_FORMAT_BC1_UNORM:    return SkImage::CompressionType::kBC1_RGBA8_UNORM;
-        default:                       return SkImage::CompressionType::kNone;
-    }
-
-    SkUNREACHABLE;
 }
 
 bool GrD3DCaps::isFormatTexturable(const GrBackendFormat& format) const {
@@ -893,6 +900,11 @@ size_t GrD3DCaps::bytesPerPixel(DXGI_FORMAT format) const {
     return this->getFormatInfo(format).fBytesPerPixel;
 }
 
+GrColorType GrD3DCaps::getFormatColorType(DXGI_FORMAT format) const {
+    const FormatInfo& info = this->getFormatInfo(format);
+    return info.fFormatColorType;
+}
+
 GrCaps::SupportedWrite GrD3DCaps::supportedWritePixelsColorType(
         GrColorType surfaceColorType, const GrBackendFormat& surfaceFormat,
         GrColorType srcColorType) const {
@@ -944,12 +956,6 @@ bool GrD3DCaps::onAreColorTypeAndFormatCompatible(GrColorType ct,
         return false;
     }
 
-    SkImage::CompressionType compression = GrDxgiFormatToCompressionType(dxgiFormat);
-    if (compression != SkImage::CompressionType::kNone) {
-        return ct == (SkCompressionTypeIsOpaque(compression) ? GrColorType::kRGB_888x
-                      : GrColorType::kRGBA_8888);
-    }
-
     const auto& info = this->getFormatInfo(dxgiFormat);
     for (int i = 0; i < info.fColorTypeInfoCount; ++i) {
         if (info.fColorTypeInfos[i].fColorType == ct) {
@@ -982,7 +988,7 @@ GrBackendFormat GrD3DCaps::getBackendFormatFromCompressionType(
     SkUNREACHABLE;
 }
 
-GrSwizzle GrD3DCaps::getReadSwizzle(const GrBackendFormat& format, GrColorType colorType) const {
+GrSwizzle GrD3DCaps::onGetReadSwizzle(const GrBackendFormat& format, GrColorType colorType) const {
     DXGI_FORMAT dxgiFormat;
     SkAssertResult(format.asDxgiFormat(&dxgiFormat));
     const auto& info = this->getFormatInfo(dxgiFormat);
@@ -1025,7 +1031,7 @@ GrCaps::SupportedRead GrD3DCaps::onSupportedReadPixelsColorType(
         return { GrColorType::kUnknown, 0 };
     }
 
-    SkImage::CompressionType compression = GrDxgiFormatToCompressionType(dxgiFormat);
+    SkImage::CompressionType compression = GrBackendFormatToCompressionType(srcBackendFormat);
     if (compression != SkImage::CompressionType::kNone) {
         return { SkCompressionTypeIsOpaque(compression) ? GrColorType::kRGB_888x
                                                         : GrColorType::kRGBA_8888, 0 };
@@ -1053,8 +1059,7 @@ void GrD3DCaps::addExtraSamplerKey(GrProcessorKeyBuilder* b,
 /**
  * TODO: Determine what goes in the ProgramDesc
  */
-GrProgramDesc GrD3DCaps::makeDesc(const GrRenderTarget* rt,
-                                  const GrProgramInfo& programInfo) const {
+GrProgramDesc GrD3DCaps::makeDesc(GrRenderTarget* rt, const GrProgramInfo& programInfo) const {
     GrProgramDesc desc;
     if (!GrProgramDesc::Build(&desc, rt, programInfo, *this)) {
         SkASSERT(!desc.isValid());

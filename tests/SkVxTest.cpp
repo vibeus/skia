@@ -127,8 +127,6 @@ DEF_TEST(SkVx, r) {
     REPORTER_ASSERT(r, all(float4::Load(buf+0) == float4{2,3,4,5}));
     REPORTER_ASSERT(r, all(float4::Load(buf+2) == float4{4,5,5,6}));
 
-    REPORTER_ASSERT(r, all(mad(float4{1,2,3,4}, 2.0f, 3.0f) == float4{5,7,9,11}));
-
     REPORTER_ASSERT(r, all(skvx::shuffle<2,1,0,3>        (float4{1,2,3,4}) == float4{3,2,1,4}));
     REPORTER_ASSERT(r, all(skvx::shuffle<2,1>            (float4{1,2,3,4}) == float2{3,2}));
     REPORTER_ASSERT(r, all(skvx::shuffle<3,3,3,3>        (float4{1,2,3,4}) == float4{4,4,4,4}));
@@ -177,5 +175,15 @@ DEF_TEST(SkVx, r) {
         REPORTER_ASSERT(r, all(mull(byte4 (x), byte4 (y)) == xy));
         REPORTER_ASSERT(r, all(mull(byte8 (x), byte8 (y)) == xy));
         REPORTER_ASSERT(r, all(mull(byte16(x), byte16(y)) == xy));
+    }
+
+    {
+        // Intentionally not testing -0, as we don't care if it's 0x0000 or 0x8000.
+        float8 fs = {+0.0f,+0.5f,+1.0f,+2.0f,
+                     -4.0f,-0.5f,-1.0f,-2.0f};
+        skvx::Vec<8,uint16_t> hs = {0x0000,0x3800,0x3c00,0x4000,
+                                    0xc400,0xb800,0xbc00,0xc000};
+        REPORTER_ASSERT(r, all(skvx::  to_half(fs) == hs));
+        REPORTER_ASSERT(r, all(skvx::from_half(hs) == fs));
     }
 }

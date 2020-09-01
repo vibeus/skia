@@ -9,7 +9,7 @@
 
 #include "include/gpu/GrBackendSurface.h"
 #include "include/gpu/d3d/GrD3DTypes.h"
-#include "src/gpu/GrRenderTargetPriv.h"
+#include "src/gpu/GrRenderTarget.h"
 #include "src/gpu/d3d/GrD3DGpu.h"
 #include "src/gpu/d3d/GrD3DResourceProvider.h"
 #include "src/gpu/d3d/GrD3DTextureResource.h"
@@ -24,8 +24,8 @@ GrD3DRenderTarget::GrD3DRenderTarget(GrD3DGpu* gpu,
                                      sk_sp<GrD3DResourceState> state,
                                      const GrD3DTextureResourceInfo& msaaInfo,
                                      sk_sp<GrD3DResourceState> msaaState,
-                                     const D3D12_CPU_DESCRIPTOR_HANDLE& colorRenderTargetView,
-                                     const D3D12_CPU_DESCRIPTOR_HANDLE& resolveRenderTargetView,
+                                     const GrD3DDescriptorHeap::CPUHandle& colorRenderTargetView,
+                                     const GrD3DDescriptorHeap::CPUHandle& resolveRenderTargetView,
                                      Wrapped)
         : GrSurface(gpu, dimensions, info.fProtected)
         , GrD3DTextureResource(info, std::move(state))
@@ -48,8 +48,8 @@ GrD3DRenderTarget::GrD3DRenderTarget(GrD3DGpu* gpu,
                                      sk_sp<GrD3DResourceState> state,
                                      const GrD3DTextureResourceInfo& msaaInfo,
                                      sk_sp<GrD3DResourceState> msaaState,
-                                     const D3D12_CPU_DESCRIPTOR_HANDLE& colorRenderTargetView,
-                                     const D3D12_CPU_DESCRIPTOR_HANDLE& resolveRenderTargetView)
+                                     const GrD3DDescriptorHeap::CPUHandle& colorRenderTargetView,
+                                     const GrD3DDescriptorHeap::CPUHandle& resolveRenderTargetView)
         : GrSurface(gpu, dimensions, info.fProtected)
         , GrD3DTextureResource(info, std::move(state))
         // for the moment we only support 1:1 color to stencil
@@ -67,7 +67,7 @@ GrD3DRenderTarget::GrD3DRenderTarget(GrD3DGpu* gpu,
                                      SkISize dimensions,
                                      const GrD3DTextureResourceInfo& info,
                                      sk_sp<GrD3DResourceState> state,
-                                     const D3D12_CPU_DESCRIPTOR_HANDLE& renderTargetView,
+                                     const GrD3DDescriptorHeap::CPUHandle& renderTargetView,
                                      Wrapped)
         : GrSurface(gpu, dimensions, info.fProtected)
         , GrD3DTextureResource(info, std::move(state))
@@ -83,7 +83,7 @@ GrD3DRenderTarget::GrD3DRenderTarget(GrD3DGpu* gpu,
                                      SkISize dimensions,
                                      const GrD3DTextureResourceInfo& info,
                                      sk_sp<GrD3DResourceState> state,
-                                     const D3D12_CPU_DESCRIPTOR_HANDLE& renderTargetView)
+                                     const GrD3DDescriptorHeap::CPUHandle& renderTargetView)
         : GrSurface(gpu, dimensions, info.fProtected)
         , GrD3DTextureResource(info, std::move(state))
         , GrRenderTarget(gpu, dimensions, 1, info.fProtected)
@@ -96,48 +96,21 @@ sk_sp<GrD3DRenderTarget> GrD3DRenderTarget::MakeWrappedRenderTarget(
     SkASSERT(info.fResource.get());
 
     SkASSERT(1 == info.fLevelCount);
-    DXGI_FORMAT dxgiFormat = info.fFormat;
 
-    D3D12_CPU_DESCRIPTOR_HANDLE renderTargetView =
+    GrD3DDescriptorHeap::CPUHandle renderTargetView =
             gpu->resourceProvider().createRenderTargetView(info.fResource.get());
 
     // create msaa surface if necessary
     GrD3DRenderTarget* d3dRT;
     if (sampleCnt > 1) {
-        D3D12_RESOURCE_DESC msTextureDesc = {};
-        msTextureDesc.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
-        msTextureDesc.Alignment = 0;  // Default alignment (64KB)
-        msTextureDesc.Width = dimensions.fWidth;
-        msTextureDesc.Height = dimensions.fHeight;
-        msTextureDesc.DepthOrArraySize = 1;
-        msTextureDesc.MipLevels = 1;
-        msTextureDesc.Format = dxgiFormat;
-        msTextureDesc.SampleDesc.Count = sampleCnt;
-        // quality levels are only supported for tiled resources so ignore for now
-        msTextureDesc.SampleDesc.Quality = GrD3DTextureResource::kDefaultQualityLevel;
-        msTextureDesc.Layout = D3D12_TEXTURE_LAYOUT_UNKNOWN;  // Use default for dxgi format
-        msTextureDesc.Flags = D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET;
-
-        D3D12_CLEAR_VALUE clearValue = {};
-        clearValue.Format = dxgiFormat;
-        // For wrapped rendertargets we assume a clear to white
-        clearValue.Color[0] = 1;
-        clearValue.Color[1] = 1;
-        clearValue.Color[2] = 1;
-        clearValue.Color[3] = 1;
-
         GrD3DTextureResourceInfo msInfo;
         sk_sp<GrD3DResourceState> msState;
-        if (!GrD3DTextureResource::InitTextureResourceInfo(gpu, msTextureDesc,
-                                                           D3D12_RESOURCE_STATE_RENDER_TARGET,
-                                                           info.fProtected, &clearValue, &msInfo)) {
-            return nullptr;
-        }
+        // for wrapped MSAA surface we assume clear to white
+        SkColor4f clearColor = { 1, 1, 1, 1 };
+        std::tie(msInfo, msState) =
+                GrD3DTextureResource::CreateMSAA(gpu, dimensions, sampleCnt, info, clearColor);
 
-        msState.reset(new GrD3DResourceState(
-                                  static_cast<D3D12_RESOURCE_STATES>(msInfo.fResourceState)));
-
-        D3D12_CPU_DESCRIPTOR_HANDLE msaaRenderTargetView =
+        GrD3DDescriptorHeap::CPUHandle msaaRenderTargetView =
                 gpu->resourceProvider().createRenderTargetView(msInfo.fResource.get());
 
         d3dRT = new GrD3DRenderTarget(gpu, dimensions, sampleCnt, info, std::move(state), msInfo,
@@ -162,10 +135,10 @@ void GrD3DRenderTarget::releaseInternalObjects() {
     if (fMSAATextureResource) {
         fMSAATextureResource->releaseResource(gpu);
         fMSAATextureResource.reset();
-        gpu->resourceProvider().recycleRenderTargetView(&fResolveRenderTargetView);
+        gpu->resourceProvider().recycleRenderTargetView(fResolveRenderTargetView);
     }
 
-    gpu->resourceProvider().recycleRenderTargetView(&fColorRenderTargetView);
+    gpu->resourceProvider().recycleRenderTargetView(fColorRenderTargetView);
 }
 
 void GrD3DRenderTarget::onRelease() {
@@ -191,7 +164,7 @@ GrD3DGpu* GrD3DRenderTarget::getD3DGpu() const {
 }
 
 DXGI_FORMAT GrD3DRenderTarget::stencilDxgiFormat() const {
-    if (auto stencil = this->renderTargetPriv().getStencilAttachment()) {
+    if (auto stencil = this->getStencilAttachment()) {
         auto d3dStencil = static_cast<GrD3DStencilAttachment*>(stencil);
         return d3dStencil->dxgiFormat();
     }
@@ -203,9 +176,9 @@ void GrD3DRenderTarget::genKey(GrProcessorKeyBuilder* b) const {
     b->add32(this->numSamples());
     b->add32(this->stencilDxgiFormat());
 #ifdef SK_DEBUG
-    if (const GrStencilAttachment* stencil = this->renderTargetPriv().getStencilAttachment()) {
+    if (const GrStencilAttachment* stencil = this->getStencilAttachment()) {
         SkASSERT(stencil->numSamples() == this->numSamples());
     }
 #endif
-    b->add32(this->sampleQualityLevel());
+    b->add32(this->sampleQualityPattern());
 }

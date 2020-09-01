@@ -232,7 +232,6 @@ bool SkPixmap::scalePixels(const SkPixmap& actualDst, SkFilterQuality quality) c
         return false;
     }
     bitmap.setImmutable();        // Don't copy when we create an image.
-    bitmap.setIsVolatile(true);   // Disable any caching.
 
     SkMatrix scale = SkMatrix::MakeRectToRect(SkRect::Make(src.bounds()),
                                               SkRect::Make(dst.bounds()),
@@ -243,6 +242,7 @@ bool SkPixmap::scalePixels(const SkPixmap& actualDst, SkFilterQuality quality) c
                                                  SkTileMode::kClamp,
                                                  SkTileMode::kClamp,
                                                  &scale,
+                                                 (SkImageShader::FilterEnum)quality,
                                                  clampAsIfUnpremul);
 
     sk_sp<SkSurface> surface = SkSurface::MakeRasterDirect(dst.info(),

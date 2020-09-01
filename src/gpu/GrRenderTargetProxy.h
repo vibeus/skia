@@ -60,7 +60,7 @@ public:
     bool wrapsVkSecondaryCB() const { return fWrapsVkSecondaryCB == WrapsVkSecondaryCB::kYes; }
 
     void markMSAADirty(const SkIRect& dirtyRect, GrSurfaceOrigin origin) {
-        SkASSERT(SkIRect::MakeSize(this->dimensions()).contains(dirtyRect));
+        SkASSERT(SkIRect::MakeSize(this->backingStoreDimensions()).contains(dirtyRect));
         SkASSERT(this->requiresManualMSAAResolve());
         auto nativeRect = GrNativeRect::MakeRelativeTo(
                 origin, this->backingStoreDimensions().height(), dirtyRect);
@@ -84,7 +84,7 @@ public:
 
     // Provides access to special purpose functions.
     GrRenderTargetProxyPriv rtPriv();
-    const GrRenderTargetProxyPriv rtPriv() const;
+    const GrRenderTargetProxyPriv rtPriv() const;  // NOLINT(readability-const-return-type)
 
 protected:
     friend class GrProxyProvider;  // for ctors

@@ -100,6 +100,7 @@ protected:
                 SkFont      font(ToolUtils::create_portable_typeface(), 100);
                 font.setEmbolden(true);
                 canvas->drawString(text, 0.f, 100.f, font, *paint);
+                break;
             }
             default:
                 break;
@@ -199,4 +200,4 @@ private:
 
 DEF_GM( return new DstReadShuffle; )
 
-}
+}  // namespace skiagm

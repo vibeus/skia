@@ -104,8 +104,7 @@ public:
     }
 
 protected:
-    virtual void handlePath(SkCanvas* canvas, const SkPath& path,
-                            const SkPaint& paint, int N) override {
+    void handlePath(SkCanvas* canvas, const SkPath& path, const SkPaint& paint, int N) override {
         SkPoint pts[2];
         if (!path.isLine(pts) || pts[0].fY != pts[1].fY) {
             this->INHERITED::handlePath(canvas, path, paint, N);
@@ -151,7 +150,7 @@ static void make_unit_star(SkPath* path, int n) {
 
 static void make_poly(SkPath* path) {
     make_unit_star(path, 9);
-    const SkMatrix matrix = SkMatrix::MakeScale(SkIntToScalar(100), SkIntToScalar(100));
+    const SkMatrix matrix = SkMatrix::Scale(100, 100);
     path->transform(matrix);
 }
 

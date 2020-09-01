@@ -13,10 +13,12 @@ GrD3DStencilAttachment::GrD3DStencilAttachment(GrD3DGpu* gpu,
                                                const Format& format,
                                                const D3D12_RESOURCE_DESC& desc,
                                                const GrD3DTextureResourceInfo& info,
-                                               sk_sp<GrD3DResourceState> state)
+                                               sk_sp<GrD3DResourceState> state,
+                                               const GrD3DDescriptorHeap::CPUHandle& view)
     : GrStencilAttachment(gpu, desc.Width, desc.Height, format.fStencilBits,
                           desc.SampleDesc.Count)
-    , GrD3DTextureResource(info, state) {
+    , GrD3DTextureResource(info, state)
+    , fView(view) {
     this->registerWithCache(SkBudgeted::kYes);
 }
 
@@ -34,8 +36,7 @@ GrD3DStencilAttachment* GrD3DStencilAttachment::Make(GrD3DGpu* gpu,
     resourceDesc.MipLevels = 1;
     resourceDesc.Format = format.fInternalFormat;
     resourceDesc.SampleDesc.Count = sampleCnt;
-    // quality levels are only supported for tiled resources so ignore for now
-    resourceDesc.SampleDesc.Quality = GrD3DTextureResource::kDefaultQualityLevel;
+    resourceDesc.SampleDesc.Quality = DXGI_STANDARD_MULTISAMPLE_QUALITY_PATTERN;
     resourceDesc.Layout = D3D12_TEXTURE_LAYOUT_UNKNOWN;  // use driver-selected swizzle
     resourceDesc.Flags = D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL;
 
@@ -51,9 +52,12 @@ GrD3DStencilAttachment* GrD3DStencilAttachment::Make(GrD3DGpu* gpu,
         return nullptr;
     }
 
+    GrD3DDescriptorHeap::CPUHandle view =
+            gpu->resourceProvider().createDepthStencilView(info.fResource.get());
+
     sk_sp<GrD3DResourceState> state(new GrD3DResourceState(info.fResourceState));
     GrD3DStencilAttachment* stencil = new GrD3DStencilAttachment(gpu, format, resourceDesc,
-                                                                 info, std::move(state));
+                                                                 info, std::move(state), view);
     return stencil;
 }
 

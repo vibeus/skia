@@ -246,16 +246,7 @@
 #  define SK_SUPPORT_GPU 1
 #endif
 
-/**
- * If GPU is enabled but no GPU backends are enabled then enable GL by default.
- * Traditionally clients have relied on Skia always building with the GL backend
- * and opting in to additional backends. TODO: Require explicit opt in for GL.
- */
-#if SK_SUPPORT_GPU
-#  if !defined(SK_GL) && !defined(SK_VULKAN) && !defined(SK_METAL) && !defined(SK_DAWN) && !defined(SK_DIRECT3D)
-#    define SK_GL
-#  endif
-#else
+#if !SK_SUPPORT_GPU
 #  undef SK_GL
 #  undef SK_VULKAN
 #  undef SK_METAL
@@ -263,17 +254,16 @@
 #  undef SK_DIRECT3D
 #endif
 
-#if !defined(SK_SUPPORT_ATLAS_TEXT)
-#  define SK_SUPPORT_ATLAS_TEXT 0
-#elif SK_SUPPORT_ATLAS_TEXT && !SK_SUPPORT_GPU
-#  error "SK_SUPPORT_ATLAS_TEXT requires SK_SUPPORT_GPU"
-#endif
-
 #if !defined(SkUNREACHABLE)
 #  if defined(_MSC_VER) && !defined(__clang__)
-#    define SkUNREACHABLE __assume(false)
+#    include <intrin.h>
+#    define FAST_FAIL_INVALID_ARG                 5
+// See https://developercommunity.visualstudio.com/content/problem/1128631/code-flow-doesnt-see-noreturn-with-extern-c.html
+// for why this is wrapped. Hopefully removable after msvc++ 19.27 is no longer supported.
+[[noreturn]] static inline void sk_fast_fail() { __fastfail(FAST_FAIL_INVALID_ARG); }
+#    define SkUNREACHABLE sk_fast_fail()
 #  else
-#    define SkUNREACHABLE __builtin_unreachable()
+#    define SkUNREACHABLE __builtin_trap()
 #  endif
 #endif
 
@@ -285,22 +275,19 @@
 #  define SK_DUMP_GOOGLE3_STACK()
 #endif
 
-#ifdef SK_BUILD_FOR_WIN
-    // Lets visual studio follow error back to source
-    #define SK_DUMP_LINE_FORMAT(message) \
-        SkDebugf("%s(%d): fatal error: \"%s\"\n", __FILE__, __LINE__, message)
-#else
-    #define SK_DUMP_LINE_FORMAT(message) \
-        SkDebugf("%s:%d: fatal error: \"%s\"\n", __FILE__, __LINE__, message)
-#endif
-
 #ifndef SK_ABORT
-#  define SK_ABORT(message) \
+#  ifdef SK_BUILD_FOR_WIN
+     // This style lets Visual Studio follow errors back to the source file.
+#    define SK_DUMP_LINE_FORMAT "%s(%d)"
+#  else
+#    define SK_DUMP_LINE_FORMAT "%s:%d"
+#  endif
+#  define SK_ABORT(message, ...) \
     do { \
-       SK_DUMP_LINE_FORMAT(message); \
-       SK_DUMP_GOOGLE3_STACK(); \
-       sk_abort_no_print(); \
-       SkUNREACHABLE; \
+        SkDebugf(SK_DUMP_LINE_FORMAT ": fatal error: \"" message "\"\n", \
+                 __FILE__, __LINE__, ##__VA_ARGS__); \
+        SK_DUMP_GOOGLE3_STACK(); \
+        sk_abort_no_print(); \
     } while (false)
 #endif
 
@@ -325,12 +312,7 @@
 
 
 /**
- * SK_PMCOLOR_BYTE_ORDER can be used to query the byte order of SkPMColor at compile time. The
- * relationship between the byte order and shift values depends on machine endianness. If the shift
- * order is R=0, G=8, B=16, A=24 then ((char*)&pmcolor)[0] will produce the R channel on a little
- * endian machine and the A channel on a big endian machine. Thus, given those shifts values,
- * SK_PMCOLOR_BYTE_ORDER(R,G,B,A) will be true on a little endian machine and
- * SK_PMCOLOR_BYTE_ORDER(A,B,G,R) will be true on a big endian machine.
+ * SK_PMCOLOR_BYTE_ORDER can be used to query the byte order of SkPMColor at compile time.
  */
 #ifdef SK_CPU_BENDIAN
 #  define SK_PMCOLOR_BYTE_ORDER(C0, C1, C2, C3)     \
@@ -444,7 +426,7 @@
     The platform implementation must not return, but should either throw
     an exception or otherwise exit.
 */
-SK_API extern void sk_abort_no_print(void);
+[[noreturn]] SK_API extern void sk_abort_no_print(void);
 
 #ifndef SkDebugf
     SK_API void SkDebugf(const char format[], ...);
@@ -461,16 +443,16 @@ SK_API extern void sk_abort_no_print(void);
 //               x - 4;
 //    }
 #define SkASSERT_RELEASE(cond) \
-        static_cast<void>( (cond) ? (void)0 : []{ SK_ABORT("assert(" #cond ")"); }() )
+        static_cast<void>( (cond) ? (void)0 : []{ SK_ABORT("assert(%s)", #cond); }() )
 
 #ifdef SK_DEBUG
     #define SkASSERT(cond) SkASSERT_RELEASE(cond)
     #define SkASSERTF(cond, fmt, ...) static_cast<void>( (cond) ? (void)0 : [&]{ \
                                           SkDebugf(fmt"\n", __VA_ARGS__);        \
-                                          SK_ABORT("assert(" #cond ")");         \
+                                          SK_ABORT("assert(%s)", #cond);         \
                                       }() )
-    #define SkDEBUGFAIL(message)        SK_ABORT(message)
-    #define SkDEBUGFAILF(fmt, ...)      SkASSERTF(false, fmt, ##__VA_ARGS__)
+    #define SkDEBUGFAIL(message)        SK_ABORT("%s", message)
+    #define SkDEBUGFAILF(fmt, ...)      SK_ABORT(fmt, ##__VA_ARGS__)
     #define SkDEBUGCODE(...)            __VA_ARGS__
     #define SkDEBUGF(...)               SkDebugf(__VA_ARGS__)
     #define SkAssertResult(cond)        SkASSERT(cond)
@@ -501,7 +483,9 @@ typedef unsigned U16CPU;
 
 /** @return false or true based on the condition
 */
-template <typename T> static constexpr bool SkToBool(const T& x) { return 0 != x; }
+template <typename T> static constexpr bool SkToBool(const T& x) {
+    return 0 != x;  // NOLINT(modernize-use-nullptr)
+}
 
 static constexpr int16_t SK_MaxS16 = INT16_MAX;
 static constexpr int16_t SK_MinS16 = -SK_MaxS16;
@@ -547,7 +531,7 @@ template <typename T> static constexpr bool SkIsAlignPtr(T x) {
 
 typedef uint32_t SkFourByteTag;
 static inline constexpr SkFourByteTag SkSetFourByteTag(char a, char b, char c, char d) {
-    return (((uint8_t)a << 24) | ((uint8_t)b << 16) | ((uint8_t)c << 8) | (uint8_t)d);
+    return (((uint32_t)a << 24) | ((uint32_t)b << 16) | ((uint32_t)c << 8) | (uint32_t)d);
 }
 
 ////////////////////////////////////////////////////////////////////////////////

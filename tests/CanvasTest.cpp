@@ -245,10 +245,10 @@ static CanvasTest kCanvasTests[] = {
         c->skew(SkIntToScalar(1), SkIntToScalar(2));
     },
     [](SkCanvas* c, skiatest::Reporter* r) {
-        c->concat(SkMatrix::MakeScale(2, 3));
+        c->concat(SkMatrix::Scale(2, 3));
     },
     [](SkCanvas* c, skiatest::Reporter* r) {
-        c->setMatrix(SkMatrix::MakeScale(2, 3));
+        c->setMatrix(SkMatrix::Scale(2, 3));
     },
     [](SkCanvas* c, skiatest::Reporter* r) {
         c->clipRect(kRect);
@@ -482,12 +482,12 @@ public:
     LifeLineCanvas(int w, int h, bool* lifeline) : SkCanvas(w, h), fLifeLine(lifeline) {
         *fLifeLine = true;
     }
-    ~LifeLineCanvas() {
+    ~LifeLineCanvas() override {
         *fLifeLine = false;
     }
 };
 
-}
+}  // namespace
 
 // Check that NWayCanvas does NOT try to manage the lifetime of its sub-canvases
 DEF_TEST(NWayCanvas, r) {

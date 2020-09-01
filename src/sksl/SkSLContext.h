@@ -8,6 +8,8 @@
 #ifndef SKSL_CONTEXT
 #define SKSL_CONTEXT
 
+#include <memory>
+
 #include "src/sksl/ir/SkSLExpression.h"
 #include "src/sksl/ir/SkSLType.h"
 
@@ -24,10 +26,6 @@ public:
     , fNull_Type(new Type("null"))
     , fFloatLiteral_Type(new Type("$floatLiteral", Type::kFloat_NumberKind, 3))
     , fIntLiteral_Type(new Type("$intLiteral", Type::kSigned_NumberKind, 1))
-    , fDouble_Type(new Type("double", Type::kFloat_NumberKind, 6, true))
-    , fDouble2_Type(new Type("double2", *fDouble_Type, 2))
-    , fDouble3_Type(new Type("double3", *fDouble_Type, 3))
-    , fDouble4_Type(new Type("double4", *fDouble_Type, 4))
     , fFloat_Type(new Type("float", Type::kFloat_NumberKind, 5, true))
     , fFloat2_Type(new Type("float2", *fFloat_Type, 2))
     , fFloat3_Type(new Type("float3", *fFloat_Type, 3))
@@ -82,15 +80,6 @@ public:
     , fHalf4x2_Type(new Type("half4x2", *fHalf_Type, 4, 2))
     , fHalf4x3_Type(new Type("half4x3", *fHalf_Type, 4, 3))
     , fHalf4x4_Type(new Type("half4x4", *fHalf_Type, 4, 4))
-    , fDouble2x2_Type(new Type("double2x2", *fDouble_Type, 2, 2))
-    , fDouble2x3_Type(new Type("double2x3", *fDouble_Type, 2, 3))
-    , fDouble2x4_Type(new Type("double2x4", *fDouble_Type, 2, 4))
-    , fDouble3x2_Type(new Type("double3x2", *fDouble_Type, 3, 2))
-    , fDouble3x3_Type(new Type("double3x3", *fDouble_Type, 3, 3))
-    , fDouble3x4_Type(new Type("double3x4", *fDouble_Type, 3, 4))
-    , fDouble4x2_Type(new Type("double4x2", *fDouble_Type, 4, 2))
-    , fDouble4x3_Type(new Type("double4x3", *fDouble_Type, 4, 3))
-    , fDouble4x4_Type(new Type("double4x4", *fDouble_Type, 4, 4))
     , fTexture1D_Type(new Type("texture1D", SpvDim1D, false, false, false, true))
     , fTexture2D_Type(new Type("texture2D", SpvDim2D, false, false, false, true))
     , fTexture3D_Type(new Type("texture3D", SpvDim3D, false, false, false, true))
@@ -158,8 +147,6 @@ public:
                                            fFloat3_Type.get(), fFloat4_Type.get() }))
     , fGenHType_Type(new Type("$genHType", { fHalf_Type.get(), fHalf2_Type.get(),
                                              fHalf3_Type.get(), fHalf4_Type.get() }))
-    , fGenDType_Type(new Type("$genDType", { fDouble_Type.get(), fDouble2_Type.get(),
-                                             fDouble3_Type.get(), fDouble4_Type.get() }))
     , fGenIType_Type(new Type("$genIType", { fInt_Type.get(), fInt2_Type.get(),
                                              fInt3_Type.get(), fInt4_Type.get() }))
     , fGenUType_Type(new Type("$genUType", { fUInt_Type.get(), fUInt2_Type.get(),
@@ -188,8 +175,6 @@ public:
     , fGVec4_Type(new Type("$gfloat4", static_type(*fFloat4_Type)))
     , fHVec_Type(new Type("$hvec", { fInvalid_Type.get(), fHalf2_Type.get(),
                                      fHalf3_Type.get(), fHalf4_Type.get() }))
-    , fDVec_Type(new Type("$dvec", { fInvalid_Type.get(), fDouble2_Type.get(),
-                                     fDouble3_Type.get(), fDouble4_Type.get() }))
     , fIVec_Type(new Type("$ivec", { fInvalid_Type.get(), fInt2_Type.get(),
                                      fInt3_Type.get(), fInt4_Type.get() }))
     , fUVec_Type(new Type("$uvec", { fInvalid_Type.get(), fUInt2_Type.get(),
@@ -205,7 +190,6 @@ public:
     , fBVec_Type(new Type("$bvec", { fInvalid_Type.get(), fBool2_Type.get(),
                                      fBool3_Type.get(), fBool4_Type.get() }))
     , fSkCaps_Type(new Type("$sk_Caps"))
-    , fSkArgs_Type(new Type("$sk_Args"))
     , fFragmentProcessor_Type(fp_type(fInt_Type.get(), fBool_Type.get()))
     , fDefined_Expression(new Defined(*fInvalid_Type)) {}
 
@@ -218,11 +202,6 @@ public:
     const std::unique_ptr<Type> fNull_Type;
     const std::unique_ptr<Type> fFloatLiteral_Type;
     const std::unique_ptr<Type> fIntLiteral_Type;
-
-    const std::unique_ptr<Type> fDouble_Type;
-    const std::unique_ptr<Type> fDouble2_Type;
-    const std::unique_ptr<Type> fDouble3_Type;
-    const std::unique_ptr<Type> fDouble4_Type;
 
     const std::unique_ptr<Type> fFloat_Type;
     const std::unique_ptr<Type> fFloat2_Type;
@@ -353,7 +332,6 @@ public:
 
     const std::unique_ptr<Type> fGenType_Type;
     const std::unique_ptr<Type> fGenHType_Type;
-    const std::unique_ptr<Type> fGenDType_Type;
     const std::unique_ptr<Type> fGenIType_Type;
     const std::unique_ptr<Type> fGenUType_Type;
     const std::unique_ptr<Type> fGenBType_Type;
@@ -378,19 +356,20 @@ public:
     const std::unique_ptr<Type> fBVec_Type;
 
     const std::unique_ptr<Type> fSkCaps_Type;
-    const std::unique_ptr<Type> fSkArgs_Type;
     const std::unique_ptr<Type> fFragmentProcessor_Type;
 
-    // dummy expression used to mark that a variable has a value during dataflow analysis (when it
-    // could have several different values, or the analyzer is otherwise unable to assign it a
+    // sentinel expression used to mark that a variable has a value during dataflow analysis (when
+    // it could have several different values, or the analyzer is otherwise unable to assign it a
     // specific expression)
     const std::unique_ptr<Expression> fDefined_Expression;
 
 private:
     class Defined : public Expression {
     public:
+        static constexpr Kind kExpressionKind = kDefined_Kind;
+
         Defined(const Type& type)
-        : INHERITED(-1, kDefined_Kind, type) {}
+        : INHERITED(-1, kExpressionKind, type) {}
 
         bool hasProperty(Property property) const override {
             return false;
@@ -398,6 +377,11 @@ private:
 
         String description() const override {
             return "<defined>";
+        }
+
+        int nodeCount() const override {
+            SkASSERT(false);
+            return 1;
         }
 
         std::unique_ptr<Expression> clone() const override {
@@ -413,17 +397,16 @@ private:
         Modifiers mods(Layout(), Modifiers::kConst_Flag);
         std::vector<Type::Field> fields = {
             Type::Field(mods, "numTextureSamplers", intType),
-            Type::Field(mods, "numCoordTransforms", intType),
             Type::Field(mods, "numChildProcessors", intType),
             Type::Field(mods, "usesLocalCoords", boolType),
             Type::Field(mods, "compatibleWithCoverageAsAlpha", boolType),
             Type::Field(mods, "preservesOpaqueInput", boolType),
             Type::Field(mods, "hasConstantOutputForConstantInput", boolType)
         };
-        return std::unique_ptr<Type>(new Type("fragmentProcessor", fields));
+        return std::make_unique<Type>("fragmentProcessor", fields);
     }
 };
 
-} // namespace
+}  // namespace SkSL
 
 #endif

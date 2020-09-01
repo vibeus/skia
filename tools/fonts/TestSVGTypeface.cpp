@@ -80,7 +80,7 @@ void TestSVGTypeface::Glyph::withSVG(Fn&& fn) const {
             return;
         }
 
-        sk_sp<SkSVGDOM> svg = SkSVGDOM::MakeFromStream(*stream.get());
+        sk_sp<SkSVGDOM> svg = SkSVGDOM::MakeFromStream(*stream);
         if (!svg) {
             return;
         }
@@ -772,7 +772,7 @@ void TestSVGTypeface::exportTtxCbdt(SkWStream* out, SkSpan<unsigned> strikeSizes
                                    -bounds.fTop,
                                    font,
                                    paint);
-            surface->flush();
+            surface->flushAndSubmit();
             sk_sp<SkImage> image = surface->makeImageSnapshot();
             sk_sp<SkData>  data  = image->encodeToData(SkEncodedImageFormat::kPNG, 100);
 
@@ -994,7 +994,7 @@ void TestSVGTypeface::exportTtxSbix(SkWStream* out, SkSpan<unsigned> strikeSizes
                                    -bounds.fTop,
                                    font,
                                    paint);
-            surface->flush();
+            surface->flushAndSubmit();
             sk_sp<SkImage> image = surface->makeImageSnapshot();
             sk_sp<SkData>  data  = image->encodeToData(SkEncodedImageFormat::kPNG, 100);
 

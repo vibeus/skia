@@ -119,7 +119,7 @@ sk_sp<SkTypeface> FontCollection::defaultFallback(SkUnichar unicode, SkFontStyle
             bcp47.push_back(locale.c_str());
         }
         sk_sp<SkTypeface> typeface(manager->matchFamilyStyleCharacter(
-                0, fontStyle, bcp47.data(), bcp47.size(), unicode));
+                nullptr, fontStyle, bcp47.data(), bcp47.size(), unicode));
         if (typeface != nullptr) {
             return typeface;
         }
@@ -131,8 +131,8 @@ sk_sp<SkTypeface> FontCollection::defaultFallback() {
     if (fDefaultFontManager == nullptr) {
         return nullptr;
     }
-    auto result = fDefaultFontManager->matchFamilyStyle(fDefaultFamilyName.c_str(), SkFontStyle());
-    return sk_ref_sp<SkTypeface>(result);
+    return sk_sp<SkTypeface>(fDefaultFontManager->matchFamilyStyle(fDefaultFamilyName.c_str(),
+                                                                   SkFontStyle()));
 }
 
 

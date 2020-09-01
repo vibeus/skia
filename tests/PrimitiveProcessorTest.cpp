@@ -7,11 +7,13 @@
 
 // This is a GPU-backend specific test. It relies on static intializers to work
 
+#include <memory>
+
 #include "include/core/SkTypes.h"
 #include "tests/Test.h"
 
 #include "include/core/SkString.h"
-#include "include/gpu/GrContext.h"
+#include "include/gpu/GrDirectContext.h"
 #include "src/core/SkPointPriv.h"
 #include "src/gpu/GrContextPriv.h"
 #include "src/gpu/GrGeometryProcessor.h"
@@ -34,8 +36,8 @@ public:
 
     const char* name() const override { return "Dummy Op"; }
 
-    static std::unique_ptr<GrDrawOp> Make(GrContext* context, int numAttribs) {
-        GrOpMemoryPool* pool = context->priv().opMemoryPool();
+    static std::unique_ptr<GrDrawOp> Make(GrRecordingContext* rContext, int numAttribs) {
+        GrOpMemoryPool* pool = rContext->priv().opMemoryPool();
 
         return pool->allocate<Op>(numAttribs);
     }
@@ -84,8 +86,7 @@ private:
                         fragBuilder->codeAppendf("%s = half4(1);", args.fOutputCoverage);
                     }
                     void setData(const GrGLSLProgramDataManager& pdman,
-                                 const GrPrimitiveProcessor& primProc,
-                                 const CoordTransformRange&) override {}
+                                 const GrPrimitiveProcessor& primProc) override {}
                 };
                 return new GLSLGP();
             }
@@ -99,8 +100,8 @@ private:
 
             GP(int numAttribs) : INHERITED(kGP_ClassID), fNumAttribs(numAttribs) {
                 SkASSERT(numAttribs > 1);
-                fAttribNames.reset(new SkString[numAttribs]);
-                fAttributes.reset(new Attribute[numAttribs]);
+                fAttribNames = std::make_unique<SkString[]>(numAttribs);
+                fAttributes = std::make_unique<Attribute[]>(numAttribs);
                 for (auto i = 0; i < numAttribs; ++i) {
                     fAttribNames[i].printf("attr%d", i);
                     // This gives us more of a mix of attribute types, and allows the
@@ -164,10 +165,10 @@ private:
 
     typedef GrMeshDrawOp INHERITED;
 };
-}
+}  // namespace
 
 DEF_GPUTEST_FOR_ALL_CONTEXTS(VertexAttributeCount, reporter, ctxInfo) {
-    GrContext* context = ctxInfo.grContext();
+    auto context = ctxInfo.directContext();
 #if GR_GPU_STATS
     GrGpu* gpu = context->priv().getGpu();
 #endif
@@ -183,7 +184,7 @@ DEF_GPUTEST_FOR_ALL_CONTEXTS(VertexAttributeCount, reporter, ctxInfo) {
         ERRORF(reporter, "No attributes allowed?!");
         return;
     }
-    context->flush();
+    context->flushAndSubmit();
     context->priv().resetGpuStats();
 #if GR_GPU_STATS
     REPORTER_ASSERT(reporter, gpu->stats()->numDraws() == 0);
@@ -195,14 +196,14 @@ DEF_GPUTEST_FOR_ALL_CONTEXTS(VertexAttributeCount, reporter, ctxInfo) {
     GrPaint grPaint;
     // This one should succeed.
     renderTargetContext->priv().testingOnly_addDrawOp(Op::Make(context, attribCnt));
-    context->flush();
+    context->flushAndSubmit();
 #if GR_GPU_STATS
     REPORTER_ASSERT(reporter, gpu->stats()->numDraws() == 1);
     REPORTER_ASSERT(reporter, gpu->stats()->numFailedDraws() == 0);
 #endif
     context->priv().resetGpuStats();
     renderTargetContext->priv().testingOnly_addDrawOp(Op::Make(context, attribCnt + 1));
-    context->flush();
+    context->flushAndSubmit();
 #if GR_GPU_STATS
     REPORTER_ASSERT(reporter, gpu->stats()->numDraws() == 0);
     REPORTER_ASSERT(reporter, gpu->stats()->numFailedDraws() == 1);

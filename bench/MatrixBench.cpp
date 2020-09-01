@@ -84,7 +84,7 @@ private:
 };
 
 // having unknown values in our arrays can throw off the timing a lot, perhaps
-// handling NaN values is a lot slower. Anyway, this guy is just meant to put
+// handling NaN values is a lot slower. Anyway, this is just meant to put
 // reasonable values in our arrays.
 template <typename T> void init9(T array[9]) {
     SkRandom rand;
@@ -266,7 +266,7 @@ DEF_BENCH( return new InvertMapRectMatrixBench(
 
 ///////////////////////////////////////////////////////////////////////////////
 
-static SkMatrix make_trans() { return SkMatrix::MakeTrans(2, 3); }
+static SkMatrix make_trans() { return SkMatrix::Translate(2, 3); }
 static SkMatrix make_scale() { SkMatrix m(make_trans()); m.postScale(1.5f, 0.5f); return m; }
 static SkMatrix make_afine() { SkMatrix m(make_trans()); m.postRotate(15); return m; }
 

@@ -18,8 +18,10 @@ namespace SkSL {
  * An expression modified by a unary operator appearing after it, such as 'i++'.
  */
 struct PostfixExpression : public Expression {
+    static constexpr Kind kExpressionKind = kPostfix_Kind;
+
     PostfixExpression(std::unique_ptr<Expression> operand, Token::Kind op)
-    : INHERITED(operand->fOffset, kPostfix_Kind, operand->fType)
+    : INHERITED(operand->fOffset, kExpressionKind, operand->fType)
     , fOperand(std::move(operand))
     , fOperator(op) {}
 
@@ -28,6 +30,10 @@ struct PostfixExpression : public Expression {
             return true;
         }
         return fOperand->hasProperty(property);
+    }
+
+    int nodeCount() const override {
+        return 1 + fOperand->nodeCount();
     }
 
     std::unique_ptr<Expression> clone() const override {
@@ -44,6 +50,6 @@ struct PostfixExpression : public Expression {
     typedef Expression INHERITED;
 };
 
-} // namespace
+}  // namespace SkSL
 
 #endif

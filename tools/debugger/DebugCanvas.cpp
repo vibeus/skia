@@ -16,9 +16,8 @@
 #include "tools/debugger/DebugLayerManager.h"
 #include "tools/debugger/DrawCommand.h"
 
-#include "include/gpu/GrContext.h"
 #include "src/gpu/GrAuditTrail.h"
-#include "src/gpu/GrContextPriv.h"
+#include "src/gpu/GrRecordingContextPriv.h"
 #include "src/gpu/GrRenderTargetContext.h"
 
 #include <string>
@@ -87,9 +86,8 @@ DebugCanvas::DebugCanvas(int width, int height)
     this->INHERITED::onClipRect(large, kReplace_SkClipOp, kHard_ClipEdgeStyle);
 }
 
-DebugCanvas::DebugCanvas(SkIRect bounds) {
-    DebugCanvas(bounds.width(), bounds.height());
-}
+DebugCanvas::DebugCanvas(SkIRect bounds)
+        : DebugCanvas(bounds.width(), bounds.height()) {}
 
 DebugCanvas::~DebugCanvas() { fCommandVector.deleteAll(); }
 
@@ -228,7 +226,7 @@ DrawCommand* DebugCanvas::getDrawCommandAt(int index) {
 
 GrAuditTrail* DebugCanvas::getAuditTrail(SkCanvas* canvas) {
     GrAuditTrail* at  = nullptr;
-    GrContext*    ctx = canvas->getGrContext();
+    auto ctx = canvas->recordingContext();
     if (ctx) {
         at = ctx->priv().auditTrail();
     }
@@ -328,11 +326,11 @@ void DebugCanvas::didConcat44(const SkM44& m) {
 }
 
 void DebugCanvas::didScale(SkScalar x, SkScalar y) {
-    this->didConcat(SkMatrix::MakeScale(x, y));
+    this->didConcat(SkMatrix::Scale(x, y));
 }
 
 void DebugCanvas::didTranslate(SkScalar x, SkScalar y) {
-    this->didConcat(SkMatrix::MakeTrans(x, y));
+    this->didConcat(SkMatrix::Translate(x, y));
 }
 
 void DebugCanvas::didConcat(const SkMatrix& matrix) {
