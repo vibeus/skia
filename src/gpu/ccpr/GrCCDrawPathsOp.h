@@ -120,10 +120,10 @@ private:
         SkPMColor4f fColor;
 
         GrCCPathCache::OnFlushEntryRef fCacheEntry;
+        sk_sp<GrTextureProxy> fCachedAtlasProxy;
+        GrCCAtlas::CoverageType fCachedAtlasCoverageType;
         SkIVector fCachedMaskShift;
-        bool fDoCopyToA8Coverage = false;
         bool fDoCachePathMask = false;
-        SkDEBUGCODE(bool fWasCountedAsRender = false);
 
         SingleDraw* fNext = nullptr;
 
