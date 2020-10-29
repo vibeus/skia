@@ -35,6 +35,7 @@
     #include "src/effects/SkDashImpl.h"
     #include "src/effects/SkEmbossMaskFilter.h"
     #include "src/effects/SkOpPE.h"
+    #include "src/effects/SkPenPathEffectImpl.h"
     #include "src/effects/SkTrimPE.h"
     #include "src/shaders/SkBitmapProcShader.h"
     #include "src/shaders/SkColorFilterShader.h"
@@ -95,6 +96,7 @@
         SK_REGISTER_FLATTENABLE(SkOpPE);
         SK_REGISTER_FLATTENABLE(SkPath1DPathEffect);
         SK_REGISTER_FLATTENABLE(SkPath2DPathEffect);
+        SK_REGISTER_FLATTENABLE(SkPenPE);
         SK_REGISTER_FLATTENABLE(SkStrokePE);
         SK_REGISTER_FLATTENABLE(SkStrokeAndFillPE);
         SK_REGISTER_FLATTENABLE(SkTrimPE);
