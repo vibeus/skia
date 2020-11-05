@@ -15,6 +15,8 @@
 #include "include/private/SkTOptional.h"
 #include "include/private/SkTo.h"
 
+#include <vector>
+
 class SkBlender;
 class SkColorFilter;
 class SkColorSpace;
@@ -420,6 +422,8 @@ public:
     bool getFillPath(const SkPath& src, SkPath* dst) const {
         return this->getFillPath(src, dst, nullptr, 1);
     }
+
+    bool getFillPathChopped(const SkPath& src, std::vector<SkPath>* result, size_t chop_verbs) const;
 
     /** Returns optional colors used when filling a path, such as a gradient.
 
