@@ -65,5 +65,40 @@ SkPath FillPathWithPaint(const SkPath& src, const SkPaint& paint, bool* isFillPt
     return builder.detach();
 }
 
+bool FillPathWithPaintChopped(const SkPath& src, const SkPaint& paint,
+                              std::vector<SkPath>* result, size_t chop_verbs) {
+    if (!src.isFinite()) {
+        result->clear();
+        return false;
+    }
+
+    constexpr SkRect* cullRect = nullptr;
+    constexpr SkScalar resScale = 1;
+
+    SkStrokeRec rec(paint, resScale);
+
+    const SkPath* srcPtr = &src;
+    SkPath tmpPath;
+
+    SkPathEffect* pe = paint.getPathEffect();
+    SkPathBuilder builder;
+    if (pe && pe->filterPath(&builder, src, &rec, cullRect, SkMatrix::I())) {
+        tmpPath = builder.detach();
+        srcPtr = &tmpPath;
+    }
+
+    if (!rec.applyToPathChopped(result, *srcPtr, chop_verbs)) {
+        result->clear();
+    }
+
+    for (auto& dst : *result) {
+        if (!dst.isFinite()) {
+            result->clear();
+            return false;
+        }
+    }
+
+    return !rec.isHairlineStyle();
+}
 
 } // namespace skpathutils

@@ -10,6 +10,8 @@
 #include "include/core/SkScalar.h"  // IWYU pragma: keep
 #include "include/core/SkTypes.h"
 
+#include <vector>
+
 class SkMatrix;
 class SkPaint;
 class SkPath;
@@ -34,6 +36,8 @@ SK_API bool FillPathWithPaint(const SkPath& src, const SkPaint& paint, SkPathBui
 
 SK_API SkPath FillPathWithPaint(const SkPath& src, const SkPaint& paint, bool* isFill = nullptr);
 
+SK_API bool FillPathWithPaintChopped(const SkPath& src, const SkPaint& paint,
+                                     std::vector<SkPath>* result, size_t chop_verbs);
 }
 
 #endif
