@@ -11,6 +11,8 @@
 #include "include/core/SkPaint.h"
 #include "include/private/base/SkMacros.h"
 
+#include <vector>
+
 class SkPath;
 
 SK_BEGIN_REQUIRE_DENSE
@@ -92,6 +94,7 @@ public:
      *  src and dst may be the same path.
      */
     bool applyToPath(SkPath* dst, const SkPath& src) const;
+    bool applyToPathChopped(std::vector<SkPath>* result, const SkPath& src, size_t chop_verbs) const;
 
     /**
      *  Apply these stroke parameters to a paint.

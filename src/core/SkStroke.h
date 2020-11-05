@@ -13,6 +13,8 @@
 #include "include/core/SkPoint.h"
 #include "include/private/base/SkTo.h"
 
+#include <vector>
+
 #ifdef SK_DEBUG
 extern bool gDebugStrokerErrorSet;
 extern SkScalar gDebugStrokerError;
@@ -63,6 +65,8 @@ public:
     void    strokeRect(const SkRect& rect, SkPath* result,
                        SkPathDirection = SkPathDirection::kCW) const;
     void    strokePath(const SkPath& path, SkPath*) const;
+    void    strokePathChopped(const SkPath& path, std::vector<SkPath>* result,
+                              size_t chop_verbs) const;
 
     ////////////////////////////////////////////////////////////////
 

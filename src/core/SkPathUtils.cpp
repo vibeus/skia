@@ -70,6 +70,40 @@ bool FillPathWithPaint(const SkPath& src, const SkPaint& paint, SkPath* dst,
     return !rec.isHairlineStyle();
 }
 
+bool FillPathWithPaintChopped(const SkPath& src, const SkPaint& paint,
+                              std::vector<SkPath>* result, size_t chop_verbs) {
+    if (!src.isFinite()) {
+        result->clear();
+        return false;
+    }
+
+    constexpr SkRect* cullRect = nullptr;
+    constexpr SkScalar resScale = 1;
+
+    SkStrokeRec rec(paint, resScale);
+
+    const SkPath* srcPtr = &src;
+    SkPath tmpPath;
+
+    SkPathEffect* pe = paint.getPathEffect();
+    if (pe && pe->filterPath(&tmpPath, src, &rec, cullRect)) {
+        srcPtr = &tmpPath;
+    }
+
+    if (!rec.applyToPathChopped(result, *srcPtr, chop_verbs)) {
+        result->clear();
+    }
+
+    for (auto& dst : *result) {
+        if (!dst.isFinite()) {
+            result->clear();
+            return false;
+        }
+    }
+
+    return !rec.isHairlineStyle();
+}
+
 } // namespace skpathutils
 
 SK_API bool FillPathWithPaint(const SkPath &src, const SkPaint &paint, SkPath *dst,
@@ -84,4 +118,10 @@ SK_API bool FillPathWithPaint(const SkPath &src, const SkPaint &paint, SkPath *d
 
 SK_API bool FillPathWithPaint(const SkPath &src, const SkPaint &paint, SkPath *dst) {
     return skpathutils::FillPathWithPaint(src, paint, dst);
+}
+
+
+SK_API bool FillPathWithPaintChopped(const SkPath& src, const SkPaint& paint,
+                                     std::vector<SkPath>* result, size_t chop_verbs) {
+    return skpathutils::FillPathWithPaintChopped(src, paint, result, chop_verbs);
 }
