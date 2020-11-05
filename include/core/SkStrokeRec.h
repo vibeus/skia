@@ -15,6 +15,7 @@
 
 #include <cmath>
 #include <cstdint>
+#include <vector>
 
 class SkPath;
 
@@ -97,6 +98,7 @@ public:
      *  src and dst may be the same path.
      */
     bool applyToPath(SkPath* dst, const SkPath& src) const;
+    bool applyToPathChopped(std::vector<SkPath>* result, const SkPath& src, size_t chop_verbs) const;
 
     /**
      *  Apply these stroke parameters to a paint.

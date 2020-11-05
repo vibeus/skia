@@ -17,6 +17,7 @@
 
 #include <cmath>
 #include <cstdint>
+#include <vector>
 
 class SkPath;
 struct SkRect;
@@ -71,6 +72,8 @@ public:
     void    strokeRect(const SkRect& rect, SkPath* result,
                        SkPathDirection = SkPathDirection::kCW) const;
     void    strokePath(const SkPath& path, SkPath*) const;
+    void    strokePathChopped(const SkPath& path, std::vector<SkPath>* result,
+                              size_t chop_verbs) const;
 
     ////////////////////////////////////////////////////////////////
 
