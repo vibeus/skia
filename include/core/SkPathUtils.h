@@ -10,6 +10,8 @@
 #include "include/core/SkScalar.h"
 #include "include/core/SkTypes.h"
 
+#include <vector>
+
 class SkMatrix;
 class SkPaint;
 class SkPath;
@@ -37,6 +39,8 @@ SK_API bool FillPathWithPaint(const SkPath &src, const SkPaint &paint, SkPath *d
 
 SK_API bool FillPathWithPaint(const SkPath &src, const SkPaint &paint, SkPath *dst);
 
+SK_API bool FillPathWithPaintChopped(const SkPath& src, const SkPaint& paint,
+                                     std::vector<SkPath>* result, size_t chop_verbs);
 }
 
 #endif
