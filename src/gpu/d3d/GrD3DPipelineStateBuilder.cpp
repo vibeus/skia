@@ -13,7 +13,7 @@
 #include "include/gpu/d3d/GrD3DTypes.h"
 #include "src/core/SkTraceEvent.h"
 #include "src/gpu/GrAutoLocaleSetter.h"
-#include "src/gpu/GrContextPriv.h"
+#include "src/gpu/GrDirectContextPriv.h"
 #include "src/gpu/GrPersistentCacheUtils.h"
 #include "src/gpu/GrShaderCaps.h"
 #include "src/gpu/GrShaderUtils.h"
@@ -550,9 +550,7 @@ sk_sp<GrD3DPipelineState> GrD3DPipelineStateBuilder::finalize() {
     this->finalizeShaders();
 
     SkSL::Program::Settings settings;
-    settings.fCaps = this->caps()->shaderCaps();
     settings.fFlipY = this->origin() != kTopLeft_GrSurfaceOrigin;
-    settings.fInverseW = true;
     settings.fSharpenTextures =
         this->gpu()->getContext()->priv().options().fSharpenMipmappedTextures;
     settings.fRTHeightOffset = fUniformHandler.getRTHeightOffset();

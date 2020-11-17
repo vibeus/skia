@@ -12,7 +12,7 @@
 #include "src/core/SkCompressedDataUtils.h"
 #include "src/core/SkMipmap.h"
 #include "src/gpu/GrBackendUtils.h"
-#include "src/gpu/GrContextPriv.h"
+#include "src/gpu/GrDirectContextPriv.h"
 #include "src/image/SkImage_Base.h"
 #include "tests/Test.h"
 #include "tests/TestUtils.h"
@@ -128,7 +128,7 @@ static void check_readback(GrDirectContext* dContext, sk_sp<SkImage> img,
     SkAssertResult(actual.tryAlloc(readBackII));
     actual.erase(SkColors::kTransparent);
 
-    bool result = img->readPixels(actual, 0, 0);
+    bool result = img->readPixels(dContext, actual, 0, 0);
     REPORTER_ASSERT(reporter, result);
 
     check_solid_pixmap(reporter, expectedColor, actual,

@@ -39,16 +39,16 @@ public:
                                                 "m");
         vVar = args.fUniformHandler->addUniform(&_outer, kFragment_GrShaderFlag, kHalf4_GrSLType,
                                                 "v");
-        SkString _sample585 = this->invokeChild(0, args);
+        SkString _sample0 = this->invokeChild(0, args);
         fragBuilder->codeAppendf(
                 R"SkSL(half4 inputColor = %s;
 @if (%s) {
-    half4 _inlineResulthalf4unpremulhalf40;
-    half4 _inlineArghalf4unpremulhalf41_0 = inputColor;
+    half4 _0_unpremul;
     {
-        _inlineResulthalf4unpremulhalf40 = half4(_inlineArghalf4unpremulhalf41_0.xyz / max(_inlineArghalf4unpremulhalf41_0.w, 9.9999997473787516e-05), _inlineArghalf4unpremulhalf41_0.w);
+        _0_unpremul = half4(inputColor.xyz / max(inputColor.w, 9.9999997473787516e-05), inputColor.w);
     }
-    inputColor = _inlineResulthalf4unpremulhalf40;
+
+    inputColor = _0_unpremul;
 
 }
 %s = %s * inputColor + %s;
@@ -61,7 +61,7 @@ public:
     %s.xyz *= %s.w;
 }
 )SkSL",
-                _sample585.c_str(), (_outer.unpremulInput ? "true" : "false"), args.fOutputColor,
+                _sample0.c_str(), (_outer.unpremulInput ? "true" : "false"), args.fOutputColor,
                 args.fUniformHandler->getUniformCStr(mVar),
                 args.fUniformHandler->getUniformCStr(vVar),
                 (_outer.clampRGBOutput ? "true" : "false"), args.fOutputColor, args.fOutputColor,
@@ -77,6 +77,7 @@ private:
             const SkM44& mValue = _outer.m;
             if (mPrev != (mValue)) {
                 mPrev = mValue;
+                static_assert(1 == 1);
                 pdman.setSkM44(mVar, mValue);
             }
             const SkV4& vValue = _outer.v;
@@ -110,6 +111,7 @@ bool GrColorMatrixFragmentProcessor::onIsEqual(const GrFragmentProcessor& other)
     if (premulOutput != that.premulOutput) return false;
     return true;
 }
+bool GrColorMatrixFragmentProcessor::usesExplicitReturn() const { return false; }
 GrColorMatrixFragmentProcessor::GrColorMatrixFragmentProcessor(
         const GrColorMatrixFragmentProcessor& src)
         : INHERITED(kGrColorMatrixFragmentProcessor_ClassID, src.optimizationFlags())

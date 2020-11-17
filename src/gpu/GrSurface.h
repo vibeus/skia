@@ -51,8 +51,7 @@ public:
     typedef void* ReleaseCtx;
     typedef void (*ReleaseProc)(ReleaseCtx);
     void setRelease(ReleaseProc proc, ReleaseCtx ctx) {
-        sk_sp<GrRefCntedCallback> helper(new GrRefCntedCallback(proc, ctx));
-        this->setRelease(std::move(helper));
+        this->setRelease(GrRefCntedCallback::Make(proc, ctx));
     }
 
     /**
@@ -69,8 +68,8 @@ public:
 
     GrInternalSurfaceFlags flags() const { return fSurfaceFlags; }
 
-    static size_t ComputeSize(const GrCaps&, const GrBackendFormat&, SkISize dimensions,
-                              int colorSamplesPerPixel, GrMipmapped, bool binSize = false);
+    static size_t ComputeSize(const GrBackendFormat&, SkISize dimensions, int colorSamplesPerPixel,
+                              GrMipmapped, bool binSize = false);
 
     /**
      * The pixel values of this surface cannot be modified (e.g. doesn't support write pixels or
@@ -115,6 +114,11 @@ protected:
         fSurfaceFlags |= GrInternalSurfaceFlags::kReadOnly;
     }
 
+    void setVkRTSupportsInputAttachment() {
+        SkASSERT(this->asRenderTarget());
+        fSurfaceFlags |= GrInternalSurfaceFlags::kVkRTSupportsInputAttachment;
+    }
+
     GrSurface(GrGpu* gpu, const SkISize& dimensions, GrProtected isProtected)
             : INHERITED(gpu)
             , fDimensions(dimensions)
@@ -147,7 +151,7 @@ private:
     GrProtected                fIsProtected;
     sk_sp<GrRefCntedCallback>  fReleaseHelper;
 
-    typedef GrGpuResource INHERITED;
+    using INHERITED = GrGpuResource;
 };
 
 #endif

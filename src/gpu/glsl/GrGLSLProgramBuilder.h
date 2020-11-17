@@ -66,10 +66,15 @@ public:
     }
 
     GrSwizzle samplerSwizzle(SamplerHandle handle) const {
-        if (this->caps()->shaderCaps()->textureSwizzleAppliedInShader()) {
-            return this->uniformHandler()->samplerSwizzle(handle);
-        }
-        return GrSwizzle::RGBA();
+        return this->uniformHandler()->samplerSwizzle(handle);
+    }
+
+    const char* inputSamplerVariable(SamplerHandle handle) const {
+        return this->uniformHandler()->inputSamplerVariable(handle);
+    }
+
+    GrSwizzle inputSamplerSwizzle(SamplerHandle handle) const {
+        return this->uniformHandler()->inputSamplerSwizzle(handle);
     }
 
     // Used to add a uniform for the RenderTarget width (used for sk_Width) without mangling
@@ -82,8 +87,9 @@ public:
 
     // Generates a name for a variable. The generated string will be name prefixed by the prefix
     // char (unless the prefix is '\0'). It also will mangle the name to be stage-specific unless
-    // explicitly asked not to.
-    void nameVariable(SkString* out, char prefix, const char* name, bool mangle = true);
+    // explicitly asked not to. `nameVariable` can also be used to generate names for functions or
+    // other types of symbols where unique names are important.
+    SkString nameVariable(char prefix, const char* name, bool mangle = true);
 
     virtual GrGLSLUniformHandler* uniformHandler() = 0;
     virtual const GrGLSLUniformHandler* uniformHandler() const = 0;
@@ -160,6 +166,7 @@ private:
     void emitAndInstallXferProc(const SkString& colorIn, const SkString& coverageIn);
     SamplerHandle emitSampler(const GrBackendFormat&, GrSamplerState, const GrSwizzle&,
                               const char* name);
+    SamplerHandle emitInputSampler(const GrSwizzle& swizzle, const char* name);
     bool checkSamplerCounts();
 
 #ifdef SK_DEBUG

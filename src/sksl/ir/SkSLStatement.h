@@ -16,27 +16,46 @@ namespace SkSL {
 /**
  * Abstract supertype of all statements.
  */
-struct Statement : public IRNode {
+class Statement : public IRNode {
+public:
     enum Kind {
-        kBlock_Kind,
-        kBreak_Kind,
-        kContinue_Kind,
-        kDiscard_Kind,
-        kDo_Kind,
-        kExpression_Kind,
-        kFor_Kind,
-        kIf_Kind,
-        kNop_Kind,
-        kReturn_Kind,
-        kSwitch_Kind,
-        kVarDeclaration_Kind,
-        kVarDeclarations_Kind,
-        kWhile_Kind
+        kBlock = (int) Symbol::Kind::kLast + 1,
+        kBreak,
+        kContinue,
+        kDiscard,
+        kDo,
+        kExpression,
+        kFor,
+        kIf,
+        kInlineMarker,
+        kNop,
+        kReturn,
+        kSwitch,
+        kSwitchCase,
+        kVarDeclaration,
+        kWhile,
+
+        kFirst = kBlock,
+        kLast = kWhile
     };
 
     Statement(int offset, Kind kind)
-    : INHERITED(offset)
-    , fKind(kind) {}
+    : INHERITED(offset, (int) kind) {
+        SkASSERT(kind >= Kind::kFirst && kind <= Kind::kLast);
+    }
+
+    Kind kind() const {
+        return (Kind) fKind;
+    }
+
+    /**
+     *  Use is<T> to check the type of a statement.
+     *  e.g. replace `s.kind() == Statement::Kind::kReturn` with `s.is<ReturnStatement>()`.
+     */
+    template <typename T>
+    bool is() const {
+        return this->fKind == T::kStatementKind;
+    }
 
     /**
      *  Use as<T> to downcast statements.
@@ -44,13 +63,13 @@ struct Statement : public IRNode {
      */
     template <typename T>
     const T& as() const {
-        SkASSERT(this->fKind == T::kStatementKind);
+        SkASSERT(this->is<T>());
         return static_cast<const T&>(*this);
     }
 
     template <typename T>
     T& as() {
-        SkASSERT(this->fKind == T::kStatementKind);
+        SkASSERT(this->is<T>());
         return static_cast<T&>(*this);
     }
 
@@ -60,9 +79,8 @@ struct Statement : public IRNode {
 
     virtual std::unique_ptr<Statement> clone() const = 0;
 
-    const Kind fKind;
-
-    typedef IRNode INHERITED;
+private:
+    using INHERITED = IRNode;
 };
 
 }  // namespace SkSL

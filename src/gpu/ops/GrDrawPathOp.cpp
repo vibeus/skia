@@ -65,14 +65,12 @@ void init_stencil_pass_settings(const GrOpFlushState& flushState,
 
 //////////////////////////////////////////////////////////////////////////////
 
-std::unique_ptr<GrDrawOp> GrDrawPathOp::Make(GrRecordingContext* context,
-                                             const SkMatrix& viewMatrix,
-                                             GrPaint&& paint,
-                                             GrAA aa,
-                                             sk_sp<const GrPath> path) {
-    GrOpMemoryPool* pool = context->priv().opMemoryPool();
-
-    return pool->allocate<GrDrawPathOp>(viewMatrix, std::move(paint), aa, std::move(path));
+GrOp::Owner GrDrawPathOp::Make(GrRecordingContext* context,
+                               const SkMatrix& viewMatrix,
+                               GrPaint&& paint,
+                               GrAA aa,
+                               sk_sp<const GrPath> path) {
+    return GrOp::Make<GrDrawPathOp>(context, viewMatrix, std::move(paint), aa, std::move(path));
 }
 
 void GrDrawPathOp::onExecute(GrOpFlushState* flushState, const SkRect& chainBounds) {
@@ -83,8 +81,7 @@ void GrDrawPathOp::onExecute(GrOpFlushState* flushState, const SkRect& chainBoun
 
     auto pipeline = GrSimpleMeshDrawOpHelper::CreatePipeline(flushState,
                                                              this->detachProcessorSet(),
-                                                             pipelineFlags,
-                                                             &kCoverPass);
+                                                             pipelineFlags);
 
     sk_sp<GrPathProcessor> pathProc(GrPathProcessor::Create(this->color(), this->viewMatrix()));
 
@@ -94,8 +91,11 @@ void GrDrawPathOp::onExecute(GrOpFlushState* flushState, const SkRect& chainBoun
                               proxy->backendFormat(),
                               flushState->writeView()->origin(),
                               pipeline,
+                              &kCoverPass,
                               pathProc.get(),
-                              GrPrimitiveType::kPath);
+                              GrPrimitiveType::kPath,
+                              0,
+                              flushState->renderPassBarriers());
 
     flushState->bindPipelineAndScissorClip(programInfo, this->bounds());
     flushState->bindTextures(programInfo.primProc(), nullptr, programInfo.pipeline());

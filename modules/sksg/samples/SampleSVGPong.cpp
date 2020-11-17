@@ -8,6 +8,7 @@
 #include "include/core/SkCanvas.h"
 #include "include/core/SkPathBuilder.h"
 #include "include/core/SkRRect.h"
+#include "include/private/SkTPin.h"
 #include "include/utils/SkRandom.h"
 #include "samplecode/Sample.h"
 #include "tools/timer/TimeUtils.h"
@@ -302,7 +303,7 @@ private:
     SkScalar                      fTimeScale = 1.0f;
     bool                          fShowInval = false;
 
-    typedef Sample INHERITED;
+    using INHERITED = Sample;
 };
 
 DEF_SAMPLE( return new PongView(); )

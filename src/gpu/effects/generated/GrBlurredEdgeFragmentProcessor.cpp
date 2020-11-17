@@ -27,7 +27,7 @@ public:
         (void)_outer;
         auto mode = _outer.mode;
         (void)mode;
-        SkString _sample308 = this->invokeChild(0, args);
+        SkString _sample0 = this->invokeChild(0, args);
         fragBuilder->codeAppendf(
                 R"SkSL(half inputAlpha = %s.w;
 half factor = 1.0 - inputAlpha;
@@ -41,7 +41,7 @@ half factor = 1.0 - inputAlpha;
 }
 %s = half4(factor);
 )SkSL",
-                _sample308.c_str(), (int)_outer.mode, args.fOutputColor);
+                _sample0.c_str(), (int)_outer.mode, args.fOutputColor);
     }
 
 private:
@@ -61,6 +61,7 @@ bool GrBlurredEdgeFragmentProcessor::onIsEqual(const GrFragmentProcessor& other)
     if (mode != that.mode) return false;
     return true;
 }
+bool GrBlurredEdgeFragmentProcessor::usesExplicitReturn() const { return false; }
 GrBlurredEdgeFragmentProcessor::GrBlurredEdgeFragmentProcessor(
         const GrBlurredEdgeFragmentProcessor& src)
         : INHERITED(kGrBlurredEdgeFragmentProcessor_ClassID, src.optimizationFlags())

@@ -221,41 +221,38 @@ static bool safe_to_ignore_subset_rect(GrAAType aaType, GrSamplerState::Filter f
  */
 class TextureOp final : public GrMeshDrawOp {
 public:
-    static std::unique_ptr<GrDrawOp> Make(GrRecordingContext* context,
-                                          GrSurfaceProxyView proxyView,
-                                          sk_sp<GrColorSpaceXform> textureXform,
-                                          GrSamplerState::Filter filter,
-                                          GrSamplerState::MipmapMode mm,
-                                          const SkPMColor4f& color,
-                                          GrTextureOp::Saturate saturate,
-                                          GrAAType aaType,
-                                          DrawQuad* quad,
-                                          const SkRect* subset) {
-        GrOpMemoryPool* pool = context->priv().opMemoryPool();
-        return pool->allocate<TextureOp>(std::move(proxyView), std::move(textureXform), filter, mm,
-                                         color, saturate, aaType, quad, subset);
+    static GrOp::Owner Make(GrRecordingContext* context,
+                            GrSurfaceProxyView proxyView,
+                            sk_sp<GrColorSpaceXform> textureXform,
+                            GrSamplerState::Filter filter,
+                            GrSamplerState::MipmapMode mm,
+                            const SkPMColor4f& color,
+                            GrTextureOp::Saturate saturate,
+                            GrAAType aaType,
+                            DrawQuad* quad,
+                            const SkRect* subset) {
+
+        return GrOp::Make<TextureOp>(context, std::move(proxyView), std::move(textureXform),
+                                     filter, mm, color, saturate, aaType, quad, subset);
     }
 
-    static std::unique_ptr<GrDrawOp> Make(GrRecordingContext* context,
-                                          GrRenderTargetContext::TextureSetEntry set[],
-                                          int cnt,
-                                          int proxyRunCnt,
-                                          GrSamplerState::Filter filter,
-                                          GrSamplerState::MipmapMode mm,
-                                          GrTextureOp::Saturate saturate,
-                                          GrAAType aaType,
-                                          SkCanvas::SrcRectConstraint constraint,
-                                          const SkMatrix& viewMatrix,
-                                          sk_sp<GrColorSpaceXform> textureColorSpaceXform) {
+    static GrOp::Owner Make(GrRecordingContext* context,
+                            GrRenderTargetContext::TextureSetEntry set[],
+                            int cnt,
+                            int proxyRunCnt,
+                            GrSamplerState::Filter filter,
+                            GrSamplerState::MipmapMode mm,
+                            GrTextureOp::Saturate saturate,
+                            GrAAType aaType,
+                            SkCanvas::SrcRectConstraint constraint,
+                            const SkMatrix& viewMatrix,
+                            sk_sp<GrColorSpaceXform> textureColorSpaceXform) {
         // Allocate size based on proxyRunCnt, since that determines number of ViewCountPairs.
         SkASSERT(proxyRunCnt <= cnt);
-
-        size_t size = sizeof(TextureOp) + sizeof(ViewCountPair) * (proxyRunCnt - 1);
-        GrOpMemoryPool* pool = context->priv().opMemoryPool();
-        void* mem = pool->allocate(size);
-        return std::unique_ptr<GrDrawOp>(
-                new (mem) TextureOp(set, cnt, proxyRunCnt, filter, mm, saturate, aaType, constraint,
-                                    viewMatrix, std::move(textureColorSpaceXform)));
+        return GrOp::MakeWithExtraMemory<TextureOp>(
+                context, sizeof(ViewCountPair) * (proxyRunCnt - 1),
+                set, cnt, proxyRunCnt, filter, mm, saturate, aaType, constraint,
+                viewMatrix, std::move(textureColorSpaceXform));
     }
 
     ~TextureOp() override {
@@ -310,7 +307,7 @@ public:
     DEFINE_OP_CLASS_ID
 
 private:
-    friend class ::GrOpMemoryPool;
+    friend class ::GrOp;
 
     struct ColorSubsetAndAA {
         ColorSubsetAndAA(const SkPMColor4f& color, const SkRect& subsetRect, GrQuadAAFlags aaFlags)
@@ -651,7 +648,8 @@ private:
                              SkArenaAlloc* arena,
                              const GrSurfaceProxyView* writeView,
                              GrAppliedClip&& appliedClip,
-                             const GrXferProcessor::DstProxyView& dstProxyView) override {
+                             const GrXferProcessor::DstProxyView& dstProxyView,
+                             GrXferBarrierFlags renderPassXferBarriers) override {
         SkASSERT(fDesc);
 
         GrGeometryProcessor* gp;
@@ -676,13 +674,14 @@ private:
         fDesc->fProgramInfo = GrSimpleMeshDrawOpHelper::CreateProgramInfo(
                 caps, arena, writeView, std::move(appliedClip), dstProxyView, gp,
                 GrProcessorSet::MakeEmptySet(), fDesc->fVertexSpec.primitiveType(),
-                pipelineFlags);
+                renderPassXferBarriers, pipelineFlags);
     }
 
     void onPrePrepareDraws(GrRecordingContext* context,
                            const GrSurfaceProxyView* writeView,
                            GrAppliedClip* clip,
-                           const GrXferProcessor::DstProxyView& dstProxyView) override {
+                           const GrXferProcessor::DstProxyView& dstProxyView,
+                           GrXferBarrierFlags renderPassXferBarriers) override {
         TRACE_EVENT0("skia.gpu", TRACE_FUNC);
 
         SkDEBUGCODE(this->validate();)
@@ -696,7 +695,8 @@ private:
         FillInVertices(*context->priv().caps(), this, fDesc, fDesc->fPrePreparedVertices);
 
         // This will call onCreateProgramInfo and register the created program with the DDL.
-        this->INHERITED::onPrePrepareDraws(context, writeView, clip, dstProxyView);
+        this->INHERITED::onPrePrepareDraws(context, writeView, clip, dstProxyView,
+                                           renderPassXferBarriers);
     }
 
     static void FillInVertices(const GrCaps& caps, TextureOp* texOp, Desc* desc, char* vertexData) {
@@ -958,8 +958,7 @@ private:
         }
     }
 
-    CombineResult onCombineIfPossible(GrOp* t, GrRecordingContext::Arenas*,
-                                      const GrCaps& caps) override {
+    CombineResult onCombineIfPossible(GrOp* t, SkArenaAlloc*, const GrCaps& caps) override {
         TRACE_EVENT0("skia.gpu", TRACE_FUNC);
         auto* that = t->cast<TextureOp>();
 
@@ -1100,7 +1099,7 @@ private:
     // as an fProxyCnt-length array.
     ViewCountPair fViewCountPairs[1];
 
-    typedef GrMeshDrawOp INHERITED;
+    using INHERITED = GrMeshDrawOp;
 };
 
 }  // anonymous namespace
@@ -1111,18 +1110,18 @@ uint32_t GrTextureOp::ClassID() {
 }
 #endif
 
-std::unique_ptr<GrDrawOp> GrTextureOp::Make(GrRecordingContext* context,
-                                            GrSurfaceProxyView proxyView,
-                                            SkAlphaType alphaType,
-                                            sk_sp<GrColorSpaceXform> textureXform,
-                                            GrSamplerState::Filter filter,
-                                            GrSamplerState::MipmapMode mm,
-                                            const SkPMColor4f& color,
-                                            Saturate saturate,
-                                            SkBlendMode blendMode,
-                                            GrAAType aaType,
-                                            DrawQuad* quad,
-                                            const SkRect* subset) {
+GrOp::Owner GrTextureOp::Make(GrRecordingContext* context,
+                              GrSurfaceProxyView proxyView,
+                              SkAlphaType alphaType,
+                              sk_sp<GrColorSpaceXform> textureXform,
+                              GrSamplerState::Filter filter,
+                              GrSamplerState::MipmapMode mm,
+                              const SkPMColor4f& color,
+                              Saturate saturate,
+                              SkBlendMode blendMode,
+                              GrAAType aaType,
+                              DrawQuad* quad,
+                              const SkRect* subset) {
     // Apply optimizations that are valid whether or not using GrTextureOp or GrFillRectOp
     if (subset && subset->contains(proxyView.proxy()->backingStoreBoundsRect())) {
         // No need for a shader-based subset if hardware clamping achieves the same effect
@@ -1200,17 +1199,17 @@ public:
                   int clumpSize,
                   GrAAType aaType) {
         int clumpProxyCount = proxy_run_count(&set[fNumClumped], clumpSize);
-        std::unique_ptr<GrDrawOp> op = TextureOp::Make(fContext,
-                                                       &set[fNumClumped],
-                                                       clumpSize,
-                                                       clumpProxyCount,
-                                                       fFilter,
-                                                       fMipmapMode,
-                                                       fSaturate,
-                                                       aaType,
-                                                       fConstraint,
-                                                       fViewMatrix,
-                                                       fTextureColorSpaceXform);
+        GrOp::Owner op = TextureOp::Make(fContext,
+                                         &set[fNumClumped],
+                                         clumpSize,
+                                         clumpProxyCount,
+                                         fFilter,
+                                         fMipmapMode,
+                                         fSaturate,
+                                         aaType,
+                                         fConstraint,
+                                         fViewMatrix,
+                                         fTextureColorSpaceXform);
         fRTC->addDrawOp(fClip, std::move(op));
 
         fNumLeft -= clumpSize;

@@ -11,6 +11,7 @@
 #include "include/core/SkContourMeasure.h"
 #include "include/core/SkImage.h"
 #include "include/core/SkPath.h"
+#include "include/private/SkTPin.h"
 #include "include/utils/SkParsePath.h"
 #include "include/utils/SkTextUtils.h"
 #include "modules/particles/include/SkParticleEffect.h"
@@ -250,7 +251,7 @@ public:
                                                           nullptr)) {
             if (auto image = asset->getFrame(0)) {
                 fBitmap.allocPixels(image->imageInfo().makeColorType(kRGBA_F32_SkColorType));
-                image->readPixels(fBitmap.pixmap(), 0, 0);
+                image->readPixels(nullptr, fBitmap.pixmap(), 0, 0);
                 return;
             }
         }

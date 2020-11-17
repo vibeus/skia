@@ -67,9 +67,8 @@ public:
             const SkPath& deviceSpacePath, const SkIRect& accessRect, const GrCaps& caps);
 
     // GrOnFlushCallbackObject overrides.
-    void preFlush(GrOnFlushResourceProvider*, const uint32_t* opsTaskIDs,
-                  int numOpsTaskIDs) override;
-    void postFlush(GrDeferredUploadToken, const uint32_t* opsTaskIDs, int numOpsTaskIDs) override;
+    void preFlush(GrOnFlushResourceProvider*, SkSpan<const uint32_t> taskIDs) override;
+    void postFlush(GrDeferredUploadToken, SkSpan<const uint32_t> taskIDs) override;
 
     void purgeCacheEntriesOlderThan(GrProxyProvider*, const GrStdSteadyClock::time_point&);
 
@@ -99,7 +98,7 @@ private:
     bool onDrawPath(const DrawPathArgs&) override;
 
     GrCCPerOpsTaskPaths* lookupPendingPaths(uint32_t opsTaskID);
-    void recordOp(std::unique_ptr<GrCCDrawPathsOp>, const DrawPathArgs&);
+    void recordOp(GrOp::Owner, const DrawPathArgs&);
 
     const CoverageType fCoverageType;
 

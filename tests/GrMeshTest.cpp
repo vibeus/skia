@@ -14,7 +14,7 @@
 #include "include/gpu/GrDirectContext.h"
 #include "include/private/GrResourceKey.h"
 #include "src/gpu/GrCaps.h"
-#include "src/gpu/GrContextPriv.h"
+#include "src/gpu/GrDirectContextPriv.h"
 #include "src/gpu/GrGeometryProcessor.h"
 #include "src/gpu/GrImageInfo.h"
 #include "src/gpu/GrMemoryPool.h"
@@ -405,16 +405,14 @@ class GrMeshTestOp : public GrDrawOp {
 public:
     DEFINE_OP_CLASS_ID
 
-    static std::unique_ptr<GrDrawOp> Make(GrRecordingContext* rContext,
-                                          std::function<void(DrawMeshHelper*)> prepareFn,
-                                          std::function<void(DrawMeshHelper*)> executeFn) {
-        GrOpMemoryPool* pool = rContext->priv().opMemoryPool();
-
-        return pool->allocate<GrMeshTestOp>(prepareFn, executeFn);
+    static GrOp::Owner Make(GrRecordingContext* rContext,
+                            std::function<void(DrawMeshHelper*)> prepareFn,
+                            std::function<void(DrawMeshHelper*)> executeFn) {
+        return GrOp::Make<GrMeshTestOp>(rContext, prepareFn, executeFn);
     }
 
 private:
-    friend class GrOpMemoryPool; // for ctor
+    friend class GrOp; // for ctor
 
     GrMeshTestOp(std::function<void(DrawMeshHelper*)> prepareFn,
                  std::function<void(DrawMeshHelper*)> executeFn)
@@ -435,7 +433,8 @@ private:
     void onPrePrepare(GrRecordingContext*,
                       const GrSurfaceProxyView* writeView,
                       GrAppliedClip*,
-                      const GrXferProcessor::DstProxyView&) override {}
+                      const GrXferProcessor::DstProxyView&,
+                      GrXferBarrierFlags renderPassXferBarriers) override {}
     void onPrepare(GrOpFlushState* state) override {
         fHelper = std::make_unique<DrawMeshHelper>(state);
         fPrepareFn(fHelper.get());
@@ -448,7 +447,7 @@ private:
     std::function<void(DrawMeshHelper*)> fPrepareFn;
     std::function<void(DrawMeshHelper*)> fExecuteFn;
 
-    typedef GrDrawOp INHERITED;
+    using INHERITED = GrDrawOp;
 };
 
 class GrMeshTestProcessor : public GrGeometryProcessor {
@@ -497,7 +496,7 @@ private:
     Attribute fInstanceLocation;
     Attribute fInstanceColor;
 
-    typedef GrGeometryProcessor INHERITED;
+    using INHERITED = GrGeometryProcessor;
 };
 
 class GLSLMeshTestProcessor : public GrGLSLGeometryProcessor {
@@ -576,7 +575,8 @@ GrOpsRenderPass* DrawMeshHelper::bindPipeline(GrPrimitiveType primitiveType, boo
 
     GrProgramInfo programInfo(fState->proxy()->numSamples(), fState->proxy()->numStencilSamples(),
                               fState->proxy()->backendFormat(), fState->writeView()->origin(),
-                              pipeline, mtp, primitiveType);
+                              pipeline, &GrUserStencilSettings::kUnused, mtp, primitiveType, 0,
+                              fState->renderPassBarriers());
 
     fState->opsRenderPass()->bindPipeline(programInfo, SkRect::MakeIWH(kImageWidth, kImageHeight));
     return fState->opsRenderPass();

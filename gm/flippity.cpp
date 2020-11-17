@@ -27,7 +27,7 @@
 #include "include/gpu/GrRecordingContext.h"
 #include "include/gpu/GrTypes.h"
 #include "include/private/SkTArray.h"
-#include "src/gpu/GrContextPriv.h"
+#include "src/gpu/GrDirectContextPriv.h"
 #include "src/image/SkImage_Base.h"
 #include "src/image/SkImage_Gpu.h"
 #include "tools/ToolUtils.h"
@@ -306,7 +306,7 @@ private:
     SkTArray<sk_sp<SkImage>> fLabels;
     sk_sp<SkImage> fReferenceImages[2];
 
-    typedef GM INHERITED;
+    using INHERITED = GM;
 };
 
 DEF_GM(return new FlippityGM;)

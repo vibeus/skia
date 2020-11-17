@@ -11,7 +11,7 @@
 #include "include/gpu/GrDirectContext.h"
 #include "include/gpu/GrRecordingContext.h"
 #include "src/gpu/GrCaps.h"
-#include "src/gpu/GrContextPriv.h"
+#include "src/gpu/GrDirectContextPriv.h"
 #include "src/gpu/GrGpu.h"
 #include "src/gpu/GrRecordingContextPriv.h"
 #include "src/gpu/GrShaderCaps.h"
@@ -34,7 +34,7 @@ GrPathRendererChain::GrPathRendererChain(GrRecordingContext* context, const Opti
     }
     if (options.fGpuPathRenderers & GpuPathRenderers::kTessellation) {
         if (GrTessellationPathRenderer::IsSupported(caps)) {
-            auto tess = sk_make_sp<GrTessellationPathRenderer>(caps);
+            auto tess = sk_make_sp<GrTessellationPathRenderer>(context);
             context->priv().addOnFlushCallbackObject(tess.get());
             fChain.push_back(std::move(tess));
         }

@@ -179,7 +179,9 @@ GrDrawOpAtlas::ErrorCode GrAtlasManager::addGlyphToAtlas(const SkGlyph& skGlyph,
                                       storage.get(),
                                       &grGlyph->fAtlasLocator);
 
-    grGlyph->fAtlasLocator.insetSrc(srcPadding);
+    if (errorCode == GrDrawOpAtlas::ErrorCode::kSucceeded) {
+        grGlyph->fAtlasLocator.insetSrc(srcPadding);
+    }
 
     return errorCode;
 }
@@ -205,7 +207,7 @@ void GrAtlasManager::addGlyphToBulkAndSetUseToken(GrDrawOpAtlas::BulkUseTokenUpd
 
 #ifdef SK_DEBUG
 #include "include/gpu/GrDirectContext.h"
-#include "src/gpu/GrContextPriv.h"
+#include "src/gpu/GrDirectContextPriv.h"
 #include "src/gpu/GrSurfaceContext.h"
 #include "src/gpu/GrSurfaceProxy.h"
 #include "src/gpu/GrTextureProxy.h"

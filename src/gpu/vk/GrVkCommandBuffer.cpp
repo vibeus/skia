@@ -189,7 +189,6 @@ void GrVkCommandBuffer::submitPipelineBarriers(const GrVkGpu* gpu, bool forSelfD
     SkASSERT(!fDstStageMask);
 }
 
-
 void GrVkCommandBuffer::bindInputBuffer(GrVkGpu* gpu, uint32_t binding,
                                         sk_sp<const GrBuffer> buffer) {
     auto* vkMeshBuffer = static_cast<const GrVkMeshBuffer*>(buffer.get());
@@ -455,10 +454,10 @@ bool GrVkPrimaryCommandBuffer::beginRenderPass(GrVkGpu* gpu,
                                                bool forSecondaryCB) {
     SkASSERT(fIsActive);
     SkASSERT(!fActiveRenderPass);
-    SkASSERT(renderPass->isCompatible(*target, renderPass->hasSelfDependency()));
+    SkASSERT(renderPass->isCompatible(*target, renderPass->selfDependencyFlags()));
 
-    const GrVkFramebuffer* framebuffer = target->getFramebuffer(
-            renderPass->hasStencilAttachment(), renderPass->hasSelfDependency());
+    const GrVkFramebuffer* framebuffer = target->getFramebuffer(renderPass->hasStencilAttachment(),
+                                                                renderPass->selfDependencyFlags());
     if (!framebuffer) {
         return false;
     }
@@ -486,7 +485,7 @@ bool GrVkPrimaryCommandBuffer::beginRenderPass(GrVkGpu* gpu,
     fActiveRenderPass = renderPass;
     this->addResource(renderPass);
     target->addResources(*this, renderPass->hasStencilAttachment(),
-                         renderPass->hasSelfDependency());
+                         renderPass->selfDependencyFlags());
     return true;
 }
 

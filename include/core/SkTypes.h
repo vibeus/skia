@@ -165,9 +165,7 @@
     #define SK_ARM_HAS_NEON
 #endif
 
-// Really this __APPLE__ check shouldn't be necessary, but it seems that Apple's Clang defines
-// __ARM_FEATURE_CRC32 for -arch arm64, even though their chips don't support those instructions!
-#if defined(__ARM_FEATURE_CRC32) && !defined(__APPLE__)
+#if defined(__ARM_FEATURE_CRC32)
     #define SK_ARM_HAS_CRC32
 #endif
 
@@ -398,19 +396,33 @@
 #  define GR_TEST_UTILS 0
 #endif
 
-#if defined(SK_HISTOGRAM_ENUMERATION) && defined(SK_HISTOGRAM_BOOLEAN)
+#if defined(SK_HISTOGRAM_ENUMERATION)  || \
+    defined(SK_HISTOGRAM_BOOLEAN)      || \
+    defined(SK_HISTOGRAM_EXACT_LINEAR) || \
+    defined(SK_HISTOGRAM_MEMORY_KB)
 #  define SK_HISTOGRAMS_ENABLED 1
 #else
 #  define SK_HISTOGRAMS_ENABLED 0
 #endif
 
 #ifndef SK_HISTOGRAM_BOOLEAN
-#  define SK_HISTOGRAM_BOOLEAN(name, value)
+#  define SK_HISTOGRAM_BOOLEAN(name, sample)
 #endif
 
 #ifndef SK_HISTOGRAM_ENUMERATION
-#  define SK_HISTOGRAM_ENUMERATION(name, value, boundary_value)
+#  define SK_HISTOGRAM_ENUMERATION(name, sample, enum_size)
 #endif
+
+#ifndef SK_HISTOGRAM_EXACT_LINEAR
+#  define SK_HISTOGRAM_EXACT_LINEAR(name, sample, value_max)
+#endif
+
+#ifndef SK_HISTOGRAM_MEMORY_KB
+#  define SK_HISTOGRAM_MEMORY_KB(name, sample)
+#endif
+
+#define SK_HISTOGRAM_PERCENTAGE(name, percent_as_int) \
+    SK_HISTOGRAM_EXACT_LINEAR(name, percent_as_int, 101)
 
 #ifndef SK_DISABLE_LEGACY_SHADERCONTEXT
 #define SK_ENABLE_LEGACY_SHADERCONTEXT
@@ -422,6 +434,10 @@
 #define SK_API_AVAILABLE(...)
 #endif
 
+#if defined(SK_BUILD_FOR_LIBFUZZER) || defined(SK_BUILD_FOR_AFL_FUZZ)
+    #define SK_BUILD_FOR_FUZZER
+#endif
+
 /** Called internally if we hit an unrecoverable error.
     The platform implementation must not return, but should either throw
     an exception or otherwise exit.
@@ -430,6 +446,9 @@
 
 #ifndef SkDebugf
     SK_API void SkDebugf(const char format[], ...);
+#endif
+#if defined(SK_BUILD_FOR_LIBFUZZER)
+    SK_API inline void SkDebugf(const char format[], ...) {}
 #endif
 
 // SkASSERT, SkASSERTF and SkASSERT_RELEASE can be used as stand alone assertion expressions, e.g.
@@ -574,15 +593,6 @@ template <typename T> static inline T SkTAbs(T value) {
         value = -value;
     }
     return value;
-}
-
-/** @return value pinned (clamped) between min and max, inclusively.
-
-    NOTE: Unlike std::clamp, SkTPin has well-defined behavior if 'value' is a
-          floating point NaN. In that case, 'max' is returned.
-*/
-template <typename T> static constexpr const T& SkTPin(const T& value, const T& min, const T& max) {
-    return value < min ? min : (value < max ? value : max);
 }
 
 ////////////////////////////////////////////////////////////////////////////////

@@ -142,7 +142,7 @@ private:
     unsigned int fSaveBehindCount;
     unsigned int fRestoreCount;
 
-    typedef SkCanvas INHERITED;
+    using INHERITED = SkCanvas;
 };
 
 void check_save_state(skiatest::Reporter* reporter, SkPicture* picture,
@@ -239,7 +239,7 @@ DEF_TEST(PictureRecorder_replay, reporter) {
     {
         SkPictureRecorder recorder;
 
-        SkCanvas* canvas = recorder.beginRecording(4, 3, nullptr, 0);
+        SkCanvas* canvas = recorder.beginRecording(4, 3);
         create_imbalance(canvas);
 
         int expectedSaveCount = canvas->getSaveCount();
@@ -505,7 +505,7 @@ public:
 private:
     unsigned fClipCount;
 
-    typedef SkCanvas INHERITED;
+    using INHERITED = SkCanvas;
 };
 
 static void test_clip_expansion(skiatest::Reporter* reporter) {

@@ -17,14 +17,17 @@
 namespace SkSL {
 
 class  ExternalValue;
-struct FunctionDeclaration;
+class FunctionDeclaration;
 
 enum class ByteCodeInstruction : uint8_t {
     // B = bool, F = float, I = int, S = signed, U = unsigned
 
+    kAbs,   // N
     kAddF,  // N
     kAddI,  // N
     kAndB,  // N
+    kACos,  // N
+    kASin,  // N
     kATan,  // N
     kBranch,
     // Followed by a byte indicating the index of the function to call

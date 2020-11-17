@@ -8,16 +8,34 @@
 #include "bench/Benchmark.h"
 #include "include/gpu/GrDirectContext.h"
 #include "src/core/SkPathPriv.h"
-#include "src/gpu/GrContextPriv.h"
+#include "src/gpu/GrDirectContextPriv.h"
 #include "src/gpu/GrOpFlushState.h"
+#include "src/gpu/mock/GrMockOpTarget.h"
 #include "src/gpu/tessellate/GrMiddleOutPolygonTriangulator.h"
 #include "src/gpu/tessellate/GrPathTessellateOp.h"
 #include "src/gpu/tessellate/GrResolveLevelCounter.h"
+#include "src/gpu/tessellate/GrStrokeTessellateOp.h"
 #include "src/gpu/tessellate/GrWangsFormula.h"
 #include "tools/ToolUtils.h"
 
 // This is the number of cubics in desk_chalkboard.skp. (There are no quadratics in the chalkboard.)
 constexpr static int kNumCubicsInChalkboard = 47182;
+
+static sk_sp<GrDirectContext> make_mock_context() {
+    GrMockOptions mockOptions;
+    mockOptions.fDrawInstancedSupport = true;
+    mockOptions.fMaxTessellationSegments = 64;
+    mockOptions.fMapBufferFlags = GrCaps::kCanMap_MapFlag;
+    mockOptions.fConfigOptions[(int)GrColorType::kAlpha_8].fRenderability =
+            GrMockOptions::ConfigOptions::Renderability::kMSAA;
+    mockOptions.fConfigOptions[(int)GrColorType::kAlpha_8].fTexturable = true;
+    mockOptions.fIntegerSupport = true;
+
+    GrContextOptions ctxOptions;
+    ctxOptions.fGpuPathRenderers = GpuPathRenderers::kTessellation;
+
+    return GrDirectContext::MakeMock(&mockOptions, ctxOptions);
+}
 
 static SkPath make_cubic_path() {
     SkRandom rand;
@@ -29,81 +47,6 @@ static SkPath make_cubic_path() {
     }
     return path;
 }
-
-// This is a dummy GrMeshDrawOp::Target implementation that just gives back pointers into
-// pre-allocated CPU buffers, rather than allocating and mapping GPU buffers.
-class BenchmarkTarget : public GrMeshDrawOp::Target {
-public:
-    BenchmarkTarget() {
-        GrMockOptions mockOptions;
-        mockOptions.fDrawInstancedSupport = true;
-        mockOptions.fMaxTessellationSegments = 64;
-        mockOptions.fMapBufferFlags = GrCaps::kCanMap_MapFlag;
-        mockOptions.fConfigOptions[(int)GrColorType::kAlpha_8].fRenderability =
-                GrMockOptions::ConfigOptions::Renderability::kMSAA;
-        mockOptions.fConfigOptions[(int)GrColorType::kAlpha_8].fTexturable = true;
-        mockOptions.fIntegerSupport = true;
-
-        GrContextOptions ctxOptions;
-        ctxOptions.fGpuPathRenderers = GpuPathRenderers::kTessellation;
-
-        fMockContext = GrDirectContext::MakeMock(&mockOptions, ctxOptions);
-    }
-    const GrDirectContext* mockContext() const { return fMockContext.get(); }
-    const GrCaps& caps() const override { return *fMockContext->priv().caps(); }
-    GrResourceProvider* resourceProvider() const override {
-        return fMockContext->priv().resourceProvider();
-    }
-    GrSmallPathAtlasMgr* smallPathAtlasManager() const override { return nullptr; }
-    void resetAllocator() { fAllocator.reset(); }
-    SkArenaAlloc* allocator() override { return &fAllocator; }
-    void putBackVertices(int vertices, size_t vertexStride) override { /* no-op */ }
-
-    void* makeVertexSpace(size_t vertexSize, int vertexCount, sk_sp<const GrBuffer>*,
-                          int* startVertex) override {
-        if (vertexSize * vertexCount > sizeof(fStaticVertexData)) {
-            SK_ABORT("FATAL: wanted %zu bytes of static vertex data; only have %zu.\n",
-                     vertexSize * vertexCount, SK_ARRAY_COUNT(fStaticVertexData));
-        }
-        *startVertex = 0;
-        return fStaticVertexData;
-    }
-
-    GrDrawIndexedIndirectCommand* makeDrawIndexedIndirectSpace(
-            int drawCount, sk_sp<const GrBuffer>* buffer, size_t* offsetInBytes) override {
-        int staticBufferCount = (int)SK_ARRAY_COUNT(fStaticDrawIndexedIndirectData);
-        if (drawCount > staticBufferCount) {
-            SK_ABORT("FATAL: wanted %i static drawIndexedIndirect elements; only have %i.\n",
-                     drawCount, staticBufferCount);
-        }
-        return fStaticDrawIndexedIndirectData;
-    }
-
-#define UNIMPL(...) __VA_ARGS__ override { SK_ABORT("unimplemented."); }
-    UNIMPL(void recordDraw(const GrGeometryProcessor*, const GrSimpleMesh[], int,
-                           const GrSurfaceProxy* const[], GrPrimitiveType))
-    UNIMPL(uint16_t* makeIndexSpace(int, sk_sp<const GrBuffer>*, int*))
-    UNIMPL(void* makeVertexSpaceAtLeast(size_t, int, int, sk_sp<const GrBuffer>*, int*, int*))
-    UNIMPL(uint16_t* makeIndexSpaceAtLeast(int, int, sk_sp<const GrBuffer>*, int*, int*))
-    UNIMPL(GrDrawIndirectCommand* makeDrawIndirectSpace(int, sk_sp<const GrBuffer>*, size_t*))
-    UNIMPL(void putBackIndices(int))
-    UNIMPL(GrRenderTargetProxy* proxy() const)
-    UNIMPL(const GrSurfaceProxyView* writeView() const)
-    UNIMPL(const GrAppliedClip* appliedClip() const)
-    UNIMPL(GrAppliedClip detachAppliedClip())
-    UNIMPL(const GrXferProcessor::DstProxyView& dstProxyView() const)
-    UNIMPL(GrStrikeCache* strikeCache() const)
-    UNIMPL(GrAtlasManager* atlasManager() const)
-    UNIMPL(SkTArray<GrSurfaceProxy*, true>* sampledProxyArray())
-    UNIMPL(GrDeferredUploadTarget* deferredUploadTarget())
-#undef UNIMPL
-
-private:
-    sk_sp<GrDirectContext> fMockContext;
-    SkPoint fStaticVertexData[(kNumCubicsInChalkboard + 2) * 8];
-    GrDrawIndexedIndirectCommand fStaticDrawIndexedIndirectData[32];
-    SkSTArenaAllocWithReset<1024 * 1024> fAllocator;
-};
 
 // This serves as a base class for benchmarking individual methods on GrPathTessellateOp.
 class GrPathTessellateOp::TestingOnly_Benchmark : public Benchmark {
@@ -127,30 +70,40 @@ public:
     class middle_out_triangulation;
 
 private:
+    void onDelayedSetup() override {
+        fTarget = std::make_unique<GrMockOpTarget>(make_mock_context());
+    }
+
     void onDraw(int loops, SkCanvas*) final {
-        if (!fTarget.mockContext()) {
+        if (!fTarget->mockContext()) {
             SkDebugf("ERROR: could not create mock context.");
             return;
         }
         for (int i = 0; i < loops; ++i) {
             fOp.fTriangleBuffer.reset();
-            fOp.fDoStencilTriangleBuffer = false;
-            fOp.fDoFillTriangleBuffer = false;
+            fOp.fTriangleVertexCount = 0;
+            fOp.fPipelineForStencils = nullptr;
+            fOp.fPipelineForFills = nullptr;
+            fOp.fStencilTrianglesProgram = nullptr;
+            fOp.fFillTrianglesProgram = nullptr;
             fOp.fCubicBuffer.reset();
-            fOp.fStencilCubicsShader = nullptr;
-            this->runBench(&fTarget, &fOp);
-            fTarget.resetAllocator();
+            fOp.fCubicVertexCount = 0;
+            // Make fStencilCubicsProgram non-null to keep assertions happy.
+            fOp.fStencilCubicsProgram = (GrProgramInfo*)-1;
+            fOp.fFillPathProgram = nullptr;
+            this->runBench(fTarget.get(), &fOp);
+            fTarget->resetAllocator();
         }
     }
 
     virtual void runBench(GrMeshDrawOp::Target*, GrPathTessellateOp*) = 0;
 
     GrPathTessellateOp fOp;
-    BenchmarkTarget fTarget;
+    std::unique_ptr<GrMockOpTarget> fTarget;
     SkString fName;
 };
 
-#define DEF_TESS_BENCH(NAME, PATH, MATRIX, TARGET, OP) \
+#define DEF_PATH_TESS_BENCH(NAME, PATH, MATRIX, TARGET, OP) \
     class GrPathTessellateOp::TestingOnly_Benchmark::NAME \
             : public GrPathTessellateOp::TestingOnly_Benchmark { \
     public: \
@@ -161,27 +114,30 @@ private:
     void GrPathTessellateOp::TestingOnly_Benchmark::NAME::runBench( \
             GrMeshDrawOp::Target* TARGET, GrPathTessellateOp* op)
 
-DEF_TESS_BENCH(prepareMiddleOutStencilGeometry, make_cubic_path(), SkMatrix::I(), target, op) {
+DEF_PATH_TESS_BENCH(prepareMiddleOutStencilGeometry, make_cubic_path(), SkMatrix::I(), target, op) {
+    // Make fStencilTrianglesProgram non-null so we benchmark the tessellation path with separate
+    // triangles.
+    op->fStencilTrianglesProgram = (GrProgramInfo*)-1;
     op->prepareMiddleOutTrianglesAndCubics(target);
 }
 
-DEF_TESS_BENCH(prepareMiddleOutStencilGeometry_indirect, make_cubic_path(), SkMatrix::I(), target,
-               op) {
+DEF_PATH_TESS_BENCH(prepareMiddleOutStencilGeometry_indirect, make_cubic_path(), SkMatrix::I(),
+                    target, op) {
     GrResolveLevelCounter resolveLevelCounter;
-    op->prepareMiddleOutTrianglesAndCubics(target, &resolveLevelCounter, true);
+    op->prepareMiddleOutTrianglesAndCubics(target, &resolveLevelCounter);
 }
 
-DEF_TESS_BENCH(prepareIndirectOuterCubics, make_cubic_path(), SkMatrix::I(), target, op) {
+DEF_PATH_TESS_BENCH(prepareIndirectOuterCubics, make_cubic_path(), SkMatrix::I(), target, op) {
     GrResolveLevelCounter resolveLevelCounter;
     resolveLevelCounter.reset(op->fPath, SkMatrix::I(), 4);
     op->prepareIndirectOuterCubics(target, resolveLevelCounter);
 }
 
-DEF_TESS_BENCH(prepareTessellatedOuterCubics, make_cubic_path(), SkMatrix::I(), target, op) {
+DEF_PATH_TESS_BENCH(prepareTessellatedOuterCubics, make_cubic_path(), SkMatrix::I(), target, op) {
     op->prepareTessellatedOuterCubics(target, kNumCubicsInChalkboard);
 }
 
-DEF_TESS_BENCH(prepareTessellatedCubicWedges, make_cubic_path(), SkMatrix::I(), target, op) {
+DEF_PATH_TESS_BENCH(prepareTessellatedCubicWedges, make_cubic_path(), SkMatrix::I(), target, op) {
     op->prepareTessellatedCubicWedges(target);
 }
 
@@ -199,23 +155,23 @@ static void benchmark_wangs_formula_cubic_log2(const SkMatrix& matrix, const SkP
     }
 }
 
-DEF_TESS_BENCH(wangs_formula_cubic_log2, make_cubic_path(), SkMatrix::I(), target, op) {
+DEF_PATH_TESS_BENCH(wangs_formula_cubic_log2, make_cubic_path(), SkMatrix::I(), target, op) {
     benchmark_wangs_formula_cubic_log2(op->fViewMatrix, op->fPath);
 }
 
-DEF_TESS_BENCH(wangs_formula_cubic_log2_scale, make_cubic_path(), SkMatrix::Scale(1.1f, 0.9f),
-               target, op) {
+DEF_PATH_TESS_BENCH(wangs_formula_cubic_log2_scale, make_cubic_path(), SkMatrix::Scale(1.1f, 0.9f),
+                    target, op) {
     benchmark_wangs_formula_cubic_log2(op->fViewMatrix, op->fPath);
 }
 
-DEF_TESS_BENCH(wangs_formula_cubic_log2_affine, make_cubic_path(),
-               SkMatrix::MakeAll(.9f,0.9f,0,  1.1f,1.1f,0, 0,0,1), target, op) {
+DEF_PATH_TESS_BENCH(wangs_formula_cubic_log2_affine, make_cubic_path(),
+                    SkMatrix::MakeAll(.9f,0.9f,0,  1.1f,1.1f,0, 0,0,1), target, op) {
     benchmark_wangs_formula_cubic_log2(op->fViewMatrix, op->fPath);
 }
 
-DEF_TESS_BENCH(middle_out_triangulation,
-               ToolUtils::make_star(SkRect::MakeWH(500, 500), kNumCubicsInChalkboard),
-               SkMatrix::I(), target, op) {
+DEF_PATH_TESS_BENCH(middle_out_triangulation,
+                    ToolUtils::make_star(SkRect::MakeWH(500, 500), kNumCubicsInChalkboard),
+                    SkMatrix::I(), target, op) {
     int baseVertex;
     auto vertexData = static_cast<SkPoint*>(target->makeVertexSpace(
             sizeof(SkPoint), kNumCubicsInChalkboard, nullptr, &baseVertex));
@@ -239,3 +195,47 @@ DEF_TESS_BENCH(middle_out_triangulation,
         middleOut.closeAndMove(pts[0]);
     }
 }
+
+class GrStrokeTessellateOp::TestingOnly_Benchmark : public Benchmark {
+public:
+    TestingOnly_Benchmark(float matrixScale, const char* suffix) : fMatrixScale(matrixScale) {
+        fName.printf("tessellate_GrStrokeTessellateOp_prepare%s", suffix);
+    }
+
+private:
+    const char* onGetName() override { return fName.c_str(); }
+    bool isSuitableFor(Backend backend) final { return backend == kNonRendering_Backend; }
+
+    void onDelayedSetup() override {
+        fTarget = std::make_unique<GrMockOpTarget>(make_mock_context());
+        fPath.reset().moveTo(0, 0);
+        for (int i = 0; i < kNumCubicsInChalkboard/2; ++i) {
+            fPath.cubicTo(100, 0, 50, 100, 100, 100);
+            fPath.cubicTo(0, -100, 200, 100, 0, 0);
+        }
+        fStrokeRec.setStrokeStyle(8);
+        fStrokeRec.setStrokeParams(SkPaint::kButt_Cap, SkPaint::kMiter_Join, 4);
+    }
+
+    void onDraw(int loops, SkCanvas*) final {
+        if (!fTarget->mockContext()) {
+            SkDebugf("ERROR: could not create mock context.");
+            return;
+        }
+        for (int i = 0; i < loops; ++i) {
+            GrStrokeTessellateOp op(GrAAType::kMSAA, SkMatrix::Scale(fMatrixScale, fMatrixScale),
+                                    fStrokeRec, fPath, GrPaint());
+            op.fTarget = fTarget.get();
+            op.prepareBuffers();
+        }
+    }
+
+    const float fMatrixScale;
+    SkString fName;
+    std::unique_ptr<GrMockOpTarget> fTarget;
+    SkPath fPath;
+    SkStrokeRec fStrokeRec = SkStrokeRec(SkStrokeRec::kFill_InitStyle);
+};
+
+DEF_BENCH( return new GrStrokeTessellateOp::TestingOnly_Benchmark(1, ""); )
+DEF_BENCH( return new GrStrokeTessellateOp::TestingOnly_Benchmark(5, "_one_chop"); )

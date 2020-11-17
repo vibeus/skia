@@ -17,18 +17,10 @@
  */
 class GrSimpleMeshDrawOpHelperWithStencil : private GrSimpleMeshDrawOpHelper {
 public:
-    using MakeArgs = GrSimpleMeshDrawOpHelper::MakeArgs;
     using InputFlags = GrSimpleMeshDrawOpHelper::InputFlags;
 
     using GrSimpleMeshDrawOpHelper::visitProxies;
-
-    const GrPipeline* createPipelineWithStencil(const GrCaps*,
-                                                SkArenaAlloc*,
-                                                GrSwizzle writeViewSwizzle,
-                                                GrAppliedClip&&,
-                                                const GrXferProcessor::DstProxyView&);
-
-    const GrPipeline* createPipelineWithStencil(GrOpFlushState* flushState);
+    using GrSimpleMeshDrawOpHelper::createPipeline;
 
     GrProgramInfo* createProgramInfoWithStencil(const GrCaps*,
                                                 SkArenaAlloc*,
@@ -36,18 +28,18 @@ public:
                                                 GrAppliedClip&&,
                                                 const GrXferProcessor::DstProxyView&,
                                                 GrGeometryProcessor*,
-                                                GrPrimitiveType);
-
+                                                GrPrimitiveType,
+                                                GrXferBarrierFlags renderPassXferBarriers);
 
     // using declarations can't be templated, so this is a pass through function instead.
     template <typename Op, typename... OpArgs>
-    static std::unique_ptr<GrDrawOp> FactoryHelper(GrRecordingContext* context, GrPaint&& paint,
-                                                   OpArgs... opArgs) {
+    static GrOp::Owner FactoryHelper(GrRecordingContext* context, GrPaint&& paint,
+                                     OpArgs... opArgs) {
         return GrSimpleMeshDrawOpHelper::FactoryHelper<Op, OpArgs...>(
                 context, std::move(paint), std::forward<OpArgs>(opArgs)...);
     }
 
-    GrSimpleMeshDrawOpHelperWithStencil(const MakeArgs&, GrAAType, const GrUserStencilSettings*,
+    GrSimpleMeshDrawOpHelperWithStencil(GrProcessorSet*, GrAAType, const GrUserStencilSettings*,
                                         InputFlags = InputFlags::kNone);
 
     GrDrawOp::FixedFunctionFlags fixedFunctionFlags() const;
@@ -86,7 +78,7 @@ public:
 
 private:
     const GrUserStencilSettings* fStencilSettings;
-    typedef GrSimpleMeshDrawOpHelper INHERITED;
+    using INHERITED = GrSimpleMeshDrawOpHelper;
 };
 
 #endif

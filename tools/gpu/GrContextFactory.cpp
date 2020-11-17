@@ -7,7 +7,7 @@
  */
 
 #include "include/gpu/GrDirectContext.h"
-#include "src/gpu/GrContextPriv.h"
+#include "src/gpu/GrDirectContextPriv.h"
 #include "tools/gpu/GrContextFactory.h"
 #ifdef SK_GL
 #include "tools/gpu/gl/GLTestContext.h"
@@ -222,6 +222,10 @@ ContextInfo GrContextFactory::getContextInfoInternal(ContextType type, ContextOv
             }
             if (!glCtx) {
                 return ContextInfo();
+            }
+            if (glCtx->gl()->fStandard == kGLES_GrGLStandard &&
+                (overrides & ContextOverrides::kFakeGLESVersionAs2)) {
+                glCtx->overrideVersion("OpenGL ES 2.0", "OpenGL ES GLSL ES 1.00");
             }
             testCtx.reset(glCtx);
             break;

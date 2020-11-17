@@ -37,6 +37,7 @@
 #include "include/private/SkMutex.h"
 #include "include/private/SkOnce.h"
 #include "include/private/SkTDArray.h"
+#include "include/private/SkTPin.h"
 #include "include/private/SkTemplates.h"
 #include "include/private/SkTo.h"
 #include "src/core/SkAdvancedTypefaceMetrics.h"
@@ -645,7 +646,9 @@ std::unique_ptr<SkAdvancedTypefaceMetrics> SkTypeface_Mac::onGetAdvancedMetrics(
     // fonts always have both glyf and loca tables. At the least, this is what
     // sfntly needs to subset the font. CTFontCopyAttribute() does not always
     // succeed in determining this directly.
-    if (!this->getTableSize('glyf') || !this->getTableSize('loca')) {
+    if (!this->getTableSize(SkSetFourByteTag('g','l','y','f')) ||
+        !this->getTableSize(SkSetFourByteTag('l','o','c','a')))
+    {
         return info;
     }
 
@@ -1094,6 +1097,17 @@ static const char* get_str(CFStringRef ref, SkString* str) {
 
 void SkTypeface_Mac::onGetFamilyName(SkString* familyName) const {
     get_str(CTFontCopyFamilyName(fFontRef.get()), familyName);
+}
+
+bool SkTypeface_Mac::onGetPostScriptName(SkString* skPostScriptName) const {
+    SkUniqueCFRef<CFStringRef> ctPostScriptName(CTFontCopyPostScriptName(fFontRef.get()));
+    if (!ctPostScriptName) {
+        return false;
+    }
+    if (skPostScriptName) {
+        SkStringFromCFString(ctPostScriptName.get(), skPostScriptName);
+    }
+    return true;
 }
 
 void SkTypeface_Mac::onGetFontDescriptor(SkFontDescriptor* desc,

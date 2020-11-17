@@ -10,7 +10,7 @@
 #include "include/encode/SkPngEncoder.h"
 #include "include/utils/SkBase64.h"
 #include "src/core/SkUtils.h"
-#include "src/gpu/GrContextPriv.h"
+#include "src/gpu/GrDirectContextPriv.h"
 #include "src/gpu/GrDrawingManager.h"
 #include "src/gpu/GrGpu.h"
 #include "src/gpu/GrImageInfo.h"
@@ -105,49 +105,6 @@ void FillPixelData(int width, int height, GrColor* data) {
                                                   0xff, 0xff);
         }
     }
-}
-
-bool CreateBackendTexture(GrDirectContext* dContext,
-                          GrBackendTexture* backendTex,
-                          int width, int height,
-                          SkColorType colorType,
-                          const SkColor4f& color,
-                          GrMipmapped mipMapped,
-                          GrRenderable renderable,
-                          GrProtected isProtected) {
-    SkImageInfo info = SkImageInfo::Make(width, height, colorType, kPremul_SkAlphaType);
-    return CreateBackendTexture(dContext, backendTex, info, color, mipMapped, renderable,
-                                isProtected);
-}
-
-bool CreateBackendTexture(GrDirectContext* dContext,
-                          GrBackendTexture* backendTex,
-                          const SkImageInfo& ii,
-                          const SkColor4f& color,
-                          GrMipmapped mipMapped,
-                          GrRenderable renderable,
-                          GrProtected isProtected) {
-    bool finishedBECreate = false;
-    auto markFinished = [](void* context) {
-        *(bool*)context = true;
-    };
-
-    *backendTex = dContext->createBackendTexture(ii.width(), ii.height(), ii.colorType(),
-                                                 color, mipMapped, renderable, isProtected,
-                                                 markFinished, &finishedBECreate);
-    if (backendTex->isValid()) {
-        dContext->submit();
-        while (!finishedBECreate) {
-            dContext->checkAsyncWorkCompletion();
-        }
-    }
-    return backendTex->isValid();
-}
-
-void DeleteBackendTexture(GrDirectContext* dContext, const GrBackendTexture& backendTex) {
-    dContext->flush();
-    dContext->submit(true);
-    dContext->deleteBackendTexture(backendTex);
 }
 
 bool DoesFullBufferContainCorrectColor(const GrColor* srcBuffer,

@@ -15,7 +15,7 @@
 #include "include/core/SkString.h"
 #include "include/gpu/GrDirectContext.h"
 #include "src/core/SkPointPriv.h"
-#include "src/gpu/GrContextPriv.h"
+#include "src/gpu/GrDirectContextPriv.h"
 #include "src/gpu/GrGeometryProcessor.h"
 #include "src/gpu/GrGpu.h"
 #include "src/gpu/GrMemoryPool.h"
@@ -36,10 +36,8 @@ public:
 
     const char* name() const override { return "Dummy Op"; }
 
-    static std::unique_ptr<GrDrawOp> Make(GrRecordingContext* rContext, int numAttribs) {
-        GrOpMemoryPool* pool = rContext->priv().opMemoryPool();
-
-        return pool->allocate<Op>(numAttribs);
+    static GrOp::Owner Make(GrRecordingContext* rContext, int numAttribs) {
+        return GrOp::Make<Op>(rContext, numAttribs);
     }
 
     FixedFunctionFlags fixedFunctionFlags() const override {
@@ -52,7 +50,7 @@ public:
     }
 
 private:
-    friend class ::GrOpMemoryPool;
+    friend class ::GrOp;
 
     Op(int numAttribs) : INHERITED(ClassID()), fNumAttribs(numAttribs) {
         this->setBounds(SkRect::MakeWH(1.f, 1.f), HasAABloat::kNo, IsHairline::kNo);
@@ -64,7 +62,8 @@ private:
                              SkArenaAlloc* arena,
                              const GrSurfaceProxyView* writeView,
                              GrAppliedClip&& appliedClip,
-                             const GrXferProcessor::DstProxyView& dstProxyView) override {
+                             const GrXferProcessor::DstProxyView& dstProxyView,
+                             GrXferBarrierFlags renderPassXferBarriers) override {
         class GP : public GrGeometryProcessor {
         public:
             static GrGeometryProcessor* Make(SkArenaAlloc* arena, int numAttribs) {
@@ -121,7 +120,7 @@ private:
             std::unique_ptr<SkString[]> fAttribNames;
             std::unique_ptr<Attribute[]> fAttributes;
 
-            typedef GrGeometryProcessor INHERITED;
+            using INHERITED = GrGeometryProcessor;
         };
 
         GrGeometryProcessor* gp = GP::Make(arena, fNumAttribs);
@@ -134,6 +133,7 @@ private:
                                                                    gp,
                                                                    GrProcessorSet::MakeEmptySet(),
                                                                    GrPrimitiveType::kTriangles,
+                                                                   renderPassXferBarriers,
                                                                    GrPipeline::InputFlags::kNone);
     }
 
@@ -163,7 +163,7 @@ private:
     GrSimpleMesh*  fMesh = nullptr;
     GrProgramInfo* fProgramInfo = nullptr;
 
-    typedef GrMeshDrawOp INHERITED;
+    using INHERITED = GrMeshDrawOp;
 };
 }  // namespace
 

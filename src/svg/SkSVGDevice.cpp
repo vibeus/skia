@@ -22,6 +22,7 @@
 #include "include/core/SkTypeface.h"
 #include "include/private/SkChecksum.h"
 #include "include/private/SkTHash.h"
+#include "include/private/SkTPin.h"
 #include "include/private/SkTo.h"
 #include "include/svg/SkSVGCanvas.h"
 #include "include/utils/SkBase64.h"
@@ -870,11 +871,8 @@ void SkSVGDevice::drawOval(const SkRect& oval, const SkPaint& paint) {
 }
 
 void SkSVGDevice::drawRRect(const SkRRect& rr, const SkPaint& paint) {
-    SkPath path;
-    path.addRRect(rr);
-
     AutoElement elem("path", this, fResourceBucket.get(), MxCp(this), paint);
-    elem.addPathAttributes(path);
+    elem.addPathAttributes(SkPath::RRect(rr));
 }
 
 void SkSVGDevice::drawPath(const SkPath& path, const SkPaint& paint, bool pathIsMutable) {
@@ -954,7 +952,8 @@ void SkSVGDevice::drawBitmapCommon(const MxCp& mc, const SkBitmap& bm, const SkP
 void SkSVGDevice::drawImageRect(const SkImage* image, const SkRect* src, const SkRect& dst,
                                 const SkPaint& paint, SkCanvas::SrcRectConstraint constraint) {
     SkBitmap bm;
-    if (!as_IB(image)->getROPixels(&bm)) {
+    // TODO: support gpu images
+    if (!as_IB(image)->getROPixels(nullptr, &bm)) {
         return;
     }
 
@@ -1092,10 +1091,5 @@ void SkSVGDevice::drawGlyphRunList(const SkGlyphRunList& glyphRunList)  {
 }
 
 void SkSVGDevice::drawVertices(const SkVertices*, SkBlendMode, const SkPaint&) {
-    // todo
-}
-
-void SkSVGDevice::drawDevice(SkBaseDevice*, int x, int y,
-                             const SkPaint&) {
     // todo
 }

@@ -204,6 +204,8 @@ public:
         return this->maxWindowRectangles() > 0 && this->onIsWindowRectanglesSupportedForRT(rt);
     }
 
+    uint32_t maxPushConstantsSize() const { return fMaxPushConstantsSize; }
+
     virtual bool isFormatSRGB(const GrBackendFormat&) const = 0;
 
     bool isFormatCompressed(const GrBackendFormat& format) const;
@@ -234,10 +236,6 @@ public:
     // sample count is 1 then 1 will be returned if non-MSAA rendering is supported, otherwise 0.
     // For historical reasons requestedCount==0 is handled identically to requestedCount==1.
     virtual int getRenderTargetSampleCount(int requestedCount, const GrBackendFormat&) const = 0;
-
-    // Returns the number of bytes per pixel for the given GrBackendFormat. This is only supported
-    // for "normal" formats. For compressed formats this will return 0.
-    virtual size_t bytesPerPixel(const GrBackendFormat&) const = 0;
 
     /**
      * Backends may have restrictions on what types of surfaces support GrGpu::writePixels().
@@ -383,6 +381,9 @@ public:
     bool driverDisableCCPR() const { return fDriverDisableCCPR; }
     bool driverDisableMSAACCPR() const { return fDriverDisableMSAACCPR; }
 
+    // Returns how to sample the dst values for the passed in GrRenderTargetProxy.
+    GrDstSampleType getDstSampleTypeForProxy(const GrRenderTargetProxy*) const;
+
     /**
      * This is used to try to ensure a successful copy a dst in order to perform shader-based
      * blending.
@@ -445,6 +446,13 @@ public:
                                     const GrBackendFormat&) const {}
 
     virtual GrProgramDesc makeDesc(GrRenderTarget*, const GrProgramInfo&) const = 0;
+
+    // This method specifies, for each backend, the extra properties of a RT when Ganesh creates one
+    // internally. For example, for Vulkan, Ganesh always creates RTs that can be used as input
+    // attachments.
+    virtual GrInternalSurfaceFlags getExtraSurfaceFlagsForDeferredRT() const {
+        return GrInternalSurfaceFlags::kNone;
+    }
 
 #if GR_TEST_UTILS
     struct TestFormatColorTypeCombination {
@@ -536,6 +544,7 @@ protected:
     int fMaxTileSize;
     int fMaxWindowRectangles;
     int fInternalMultisampleCount;
+    uint32_t fMaxPushConstantsSize = 0;
 
     GrDriverBugWorkarounds fDriverBugWorkarounds;
 
@@ -563,11 +572,14 @@ private:
 
     virtual GrSwizzle onGetReadSwizzle(const GrBackendFormat&, GrColorType) const = 0;
 
+    virtual GrDstSampleType onGetDstSampleTypeForProxy(const GrRenderTargetProxy*) const {
+        return GrDstSampleType::kAsTextureCopy;
+    }
 
     bool fSuppressPrints : 1;
     bool fWireframeMode  : 1;
 
-    typedef SkRefCnt INHERITED;
+    using INHERITED = SkRefCnt;
 };
 
 #endif

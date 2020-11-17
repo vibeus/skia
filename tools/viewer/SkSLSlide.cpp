@@ -38,10 +38,10 @@ SkSLSlide::SkSLSlide() {
 
     fSkSL =
 
-        "in shader child;\n"
+        "uniform shader child;\n"
         "\n"
-        "void main(float2 p, inout half4 color) {\n"
-        "    color = sample(child, p);\n"
+        "half4 main(float2 p) {\n"
+        "    return sample(child, p);\n"
         "}\n";
 
     fCodeIsDirty = true;

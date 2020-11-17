@@ -9,6 +9,7 @@
 #define GrSmallPathRenderer_DEFINED
 
 #include "src/gpu/GrPathRenderer.h"
+#include "src/gpu/ops/GrOp.h"
 
 class GrDrawOp;
 class GrRecordingContext;
@@ -21,12 +22,12 @@ public:
 
     const char* name() const final { return "Small"; }
 
-    static std::unique_ptr<GrDrawOp> createOp_TestingOnly(GrRecordingContext*,
-                                                          GrPaint&&,
-                                                          const GrStyledShape&,
-                                                          const SkMatrix& viewMatrix,
-                                                          bool gammaCorrect,
-                                                          const GrUserStencilSettings*);
+    static GrOp::Owner createOp_TestingOnly(GrRecordingContext*,
+                                            GrPaint&&,
+                                            const GrStyledShape&,
+                                            const SkMatrix& viewMatrix,
+                                            bool gammaCorrect,
+                                            const GrUserStencilSettings*);
 
 private:
     class SmallPathOp;
@@ -39,7 +40,7 @@ private:
 
     bool onDrawPath(const DrawPathArgs&) override;
 
-    typedef GrPathRenderer INHERITED;
+    using INHERITED = GrPathRenderer;
 };
 
 #endif

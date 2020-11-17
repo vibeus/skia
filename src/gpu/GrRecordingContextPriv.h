@@ -41,7 +41,7 @@ public:
     // from GrRecordingContext
     GrDrawingManager* drawingManager() { return fContext->drawingManager(); }
 
-    GrOpMemoryPool* opMemoryPool() { return fContext->arenas().opMemoryPool(); }
+    GrMemoryPool* opMemoryPool() { return fContext->arenas().opMemoryPool(); }
     SkArenaAlloc* recordTimeAllocator() { return fContext->arenas().recordTimeAllocator(); }
     GrRecordingContext::Arenas arenas() { return fContext->arenas(); }
 
@@ -57,6 +57,8 @@ public:
 
     GrTextBlobCache* getTextBlobCache() { return fContext->getTextBlobCache(); }
 
+    GrThreadSafeCache* threadSafeCache() { return fContext->threadSafeCache(); }
+
     void moveRenderTasksToDDL(SkDeferredDisplayList*);
 
     /**
@@ -68,10 +70,6 @@ public:
     void addOnFlushCallbackObject(GrOnFlushCallbackObject*);
 
     GrAuditTrail* auditTrail() { return fContext->auditTrail(); }
-
-    // CONTEXT TODO: remove this backdoor
-    // In order to make progress we temporarily need a way to break CL impasses.
-    GrContext* backdoor();
 
 #if GR_TEST_UTILS
     // Used by tests that intentionally exercise codepaths that print warning messages, in order to

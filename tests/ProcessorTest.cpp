@@ -10,7 +10,7 @@
 #include "include/gpu/GrDirectContext.h"
 #include "src/gpu/GrBitmapTextureMaker.h"
 #include "src/gpu/GrClip.h"
-#include "src/gpu/GrContextPriv.h"
+#include "src/gpu/GrDirectContextPriv.h"
 #include "src/gpu/GrGpuResource.h"
 #include "src/gpu/GrImageInfo.h"
 #include "src/gpu/GrMemoryPool.h"
@@ -30,11 +30,9 @@ namespace {
 class TestOp : public GrMeshDrawOp {
 public:
     DEFINE_OP_CLASS_ID
-    static std::unique_ptr<GrDrawOp> Make(GrRecordingContext* rContext,
-                                          std::unique_ptr<GrFragmentProcessor> fp) {
-        GrOpMemoryPool* pool = rContext->priv().opMemoryPool();
-
-        return pool->allocate<TestOp>(std::move(fp));
+    static GrOp::Owner Make(GrRecordingContext* rContext,
+                            std::unique_ptr<GrFragmentProcessor> fp) {
+        return GrOp::Make<TestOp>(rContext, std::move(fp));
     }
 
     const char* name() const override { return "TestOp"; }
@@ -57,7 +55,7 @@ public:
     }
 
 private:
-    friend class ::GrOpMemoryPool; // for ctor
+    friend class ::GrOp; // for ctor
 
     TestOp(std::unique_ptr<GrFragmentProcessor> fp)
             : INHERITED(ClassID()), fProcessors(std::move(fp)) {
@@ -69,17 +67,19 @@ private:
                              SkArenaAlloc*,
                              const GrSurfaceProxyView* writeView,
                              GrAppliedClip&&,
-                             const GrXferProcessor::DstProxyView&) override { return; }
+                             const GrXferProcessor::DstProxyView&,
+                             GrXferBarrierFlags renderPassXferBarriers) override {}
     void onPrePrepareDraws(GrRecordingContext*,
                            const GrSurfaceProxyView* writeView,
                            GrAppliedClip*,
-                           const GrXferProcessor::DstProxyView&) override { return; }
+                           const GrXferProcessor::DstProxyView&,
+                           GrXferBarrierFlags renderPassXferBarriers) override {}
     void onPrepareDraws(Target* target) override { return; }
     void onExecute(GrOpFlushState*, const SkRect&) override { return; }
 
     GrProcessorSet fProcessors;
 
-    typedef GrMeshDrawOp INHERITED;
+    using INHERITED = GrMeshDrawOp;
 };
 
 /**
@@ -139,7 +139,7 @@ private:
 
     bool onIsEqual(const GrFragmentProcessor&) const override { return false; }
 
-    typedef GrFragmentProcessor INHERITED;
+    using INHERITED = GrFragmentProcessor;
 };
 }  // namespace
 
@@ -174,7 +174,7 @@ DEF_GPUTEST_FOR_ALL_CONTEXTS(ProcessorRefTest, reporter, ctxInfo) {
                     if (makeClone) {
                         clone = fp->clone();
                     }
-                    std::unique_ptr<GrDrawOp> op(TestOp::Make(context, std::move(fp)));
+                    GrOp::Owner op = TestOp::Make(context, std::move(fp));
                     renderTargetContext->priv().testingOnly_addDrawOp(std::move(op));
                     if (clone) {
                         op = TestOp::Make(context, std::move(clone));

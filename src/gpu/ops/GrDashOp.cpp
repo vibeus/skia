@@ -222,16 +222,14 @@ public:
         SkScalar fPerpendicularScale;
     };
 
-    static std::unique_ptr<GrDrawOp> Make(GrRecordingContext* context,
-                                          GrPaint&& paint,
-                                          const LineData& geometry,
-                                          SkPaint::Cap cap,
-                                          AAMode aaMode, bool fullDash,
-                                          const GrUserStencilSettings* stencilSettings) {
-        GrOpMemoryPool* pool = context->priv().opMemoryPool();
-
-        return pool->allocate<DashOp>(std::move(paint), geometry, cap,
-                                      aaMode, fullDash, stencilSettings);
+    static GrOp::Owner Make(GrRecordingContext* context,
+                            GrPaint&& paint,
+                            const LineData& geometry,
+                            SkPaint::Cap cap,
+                            AAMode aaMode, bool fullDash,
+                            const GrUserStencilSettings* stencilSettings) {
+        return GrOp::Make<DashOp>(context, std::move(paint), geometry, cap,
+                                  aaMode, fullDash, stencilSettings);
     }
 
     const char* name() const override { return "DashOp"; }
@@ -267,7 +265,7 @@ public:
     }
 
 private:
-    friend class GrOpMemoryPool; // for ctor
+    friend class GrOp; // for ctor
 
     DashOp(GrPaint&& paint, const LineData& geometry, SkPaint::Cap cap, AAMode aaMode,
            bool fullDash, const GrUserStencilSettings* stencilSettings)
@@ -321,7 +319,8 @@ private:
                              SkArenaAlloc* arena,
                              const GrSurfaceProxyView* writeView,
                              GrAppliedClip&& appliedClip,
-                             const GrXferProcessor::DstProxyView& dstProxyView) override {
+                             const GrXferProcessor::DstProxyView& dstProxyView,
+                             GrXferBarrierFlags renderPassXferBarriers) override {
 
         DashCap capType = (this->cap() == SkPaint::kRound_Cap) ? kRound_DashCap : kNonRound_DashCap;
 
@@ -360,6 +359,7 @@ private:
                                                                    gp,
                                                                    std::move(fProcessorSet),
                                                                    GrPrimitiveType::kTriangles,
+                                                                   renderPassXferBarriers,
                                                                    pipelineFlags,
                                                                    fStencilSettings);
     }
@@ -663,8 +663,7 @@ private:
         flushState->drawMesh(*fMesh);
     }
 
-    CombineResult onCombineIfPossible(GrOp* t, GrRecordingContext::Arenas*,
-                                      const GrCaps& caps) override {
+    CombineResult onCombineIfPossible(GrOp* t, SkArenaAlloc*, const GrCaps& caps) override {
         DashOp* that = t->cast<DashOp>();
         if (fProcessorSet != that->fProcessorSet) {
             return CombineResult::kCannotCombine;
@@ -735,16 +734,16 @@ private:
     GrSimpleMesh*  fMesh = nullptr;
     GrProgramInfo* fProgramInfo = nullptr;
 
-    typedef GrMeshDrawOp INHERITED;
+    using INHERITED = GrMeshDrawOp;
 };
 
-std::unique_ptr<GrDrawOp> GrDashOp::MakeDashLineOp(GrRecordingContext* context,
-                                                   GrPaint&& paint,
-                                                   const SkMatrix& viewMatrix,
-                                                   const SkPoint pts[2],
-                                                   AAMode aaMode,
-                                                   const GrStyle& style,
-                                                   const GrUserStencilSettings* stencilSettings) {
+GrOp::Owner GrDashOp::MakeDashLineOp(GrRecordingContext* context,
+                                     GrPaint&& paint,
+                                     const SkMatrix& viewMatrix,
+                                     const SkPoint pts[2],
+                                     AAMode aaMode,
+                                     const GrStyle& style,
+                                     const GrUserStencilSettings* stencilSettings) {
     SkASSERT(GrDashOp::CanDrawDashLine(pts, style, viewMatrix));
     const SkScalar* intervals = style.dashIntervals();
     SkScalar phase = style.dashPhase();
@@ -852,7 +851,7 @@ private:
 
     GR_DECLARE_GEOMETRY_PROCESSOR_TEST
 
-    typedef GrGeometryProcessor INHERITED;
+    using INHERITED = GrGeometryProcessor;
 };
 
 //////////////////////////////////////////////////////////////////////////////
@@ -880,7 +879,7 @@ private:
     SkScalar      fPrevCenterX;
     SkScalar      fPrevIntervalLength;
 
-    typedef GrGLSLGeometryProcessor INHERITED;
+    using INHERITED = GrGLSLGeometryProcessor;
 };
 
 GLDashingCircleEffect::GLDashingCircleEffect() {
@@ -1062,7 +1061,7 @@ private:
 
     GR_DECLARE_GEOMETRY_PROCESSOR_TEST
 
-    typedef GrGeometryProcessor INHERITED;
+    using INHERITED = GrGeometryProcessor;
 };
 
 //////////////////////////////////////////////////////////////////////////////
@@ -1086,7 +1085,7 @@ private:
     SkMatrix      fLocalMatrix;
     UniformHandle fLocalMatrixUniform;
 
-    typedef GrGLSLGeometryProcessor INHERITED;
+    using INHERITED = GrGLSLGeometryProcessor;
 };
 
 GLDashingLineEffect::GLDashingLineEffect() : fColor(SK_PMColor4fILLEGAL) {}

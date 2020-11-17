@@ -61,6 +61,18 @@ bool String::endsWith(const char suffix[]) const {
     return !strncmp(this->data() + this->size() - suffixLength, suffix, suffixLength);
 }
 
+bool String::consumeSuffix(const char suffix[]) {
+    size_t suffixLength = strlen(suffix);
+    if (this->length() < suffixLength) {
+        return false;
+    }
+    if (0 != strncmp(this->data() + this->size() - suffixLength, suffix, suffixLength)) {
+        return false;
+    }
+    this->resize(this->length() - suffixLength);
+    return true;
+}
+
 String String::operator+(const char* s) const {
     String result(*this);
     result.append(s);
@@ -167,6 +179,18 @@ bool StringFragment::operator<(StringFragment other) const {
         return comparison < 0;
     }
     return fLength < other.fLength;
+}
+
+String StringFragment::operator+(const char* other) const {
+    return String(*this) + other;
+}
+
+String StringFragment::operator+(const StringFragment& other) const {
+    return String(*this) + other;
+}
+
+String StringFragment::operator+(const String& other) const {
+    return String(*this) + other;
 }
 
 bool operator==(const char* s1, StringFragment s2) {

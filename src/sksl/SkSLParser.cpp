@@ -21,7 +21,25 @@
 
 namespace SkSL {
 
-#define MAX_PARSE_DEPTH 50
+static constexpr int kMaxParseDepth = 50;
+static constexpr int kMaxArrayDimensionality = 8;
+static constexpr int kMaxStructDepth = 8;
+
+static bool struct_is_too_deeply_nested(const Type& type, int limit) {
+    if (limit < 0) {
+        return true;
+    }
+
+    if (type.typeKind() == Type::TypeKind::kStruct) {
+        for (const Type::Field& f : type.fields()) {
+            if (struct_is_too_deeply_nested(*f.fType, limit - 1)) {
+                return true;
+            }
+        }
+    }
+
+    return false;
+}
 
 class AutoDepth {
 public:
@@ -36,7 +54,7 @@ public:
     bool increase() {
         ++fDepth;
         ++fParser->fDepth;
-        if (fParser->fDepth > MAX_PARSE_DEPTH) {
+        if (fParser->fDepth > kMaxParseDepth) {
             fParser->error(fParser->peek(), String("exceeded max parse depth"));
             return false;
         }
@@ -138,7 +156,7 @@ Parser::Parser(const char* text, size_t length, SymbolTable& symbols, ErrorRepor
     } while (false)
 
 /* (directive | section | declaration)* END_OF_FILE */
-std::unique_ptr<ASTFile> Parser::file() {
+std::unique_ptr<ASTFile> Parser::compilationUnit() {
     fFile = std::make_unique<ASTFile>();
     CREATE_NODE(result, 0, ASTNode::Kind::kFile);
     fFile->fRoot = result;
@@ -255,7 +273,7 @@ void Parser::error(int offset, String msg) {
 
 bool Parser::isType(StringFragment name) {
     const Symbol* s = fSymbols[name];
-    return s && s->fKind == Symbol::kType_Kind;
+    return s && s->kind() == Symbol::Kind::kType;
 }
 
 /* DIRECTIVE(#version) INT_LITERAL ("es" | "compatibility")? |
@@ -357,7 +375,7 @@ ASTNode::ID Parser::enumDeclaration() {
     if (!this->expect(Token::Kind::TK_LBRACE, "'{'")) {
         return ASTNode::ID::Invalid();
     }
-    fSymbols.add(this->text(name), std::make_unique<Type>(this->text(name), Type::kEnum_Kind));
+    fSymbols.add(std::make_unique<Type>(this->text(name), Type::TypeKind::kEnum));
     CREATE_NODE(result, name.fOffset, ASTNode::Kind::kEnum, this->text(name));
     if (!this->checkNext(Token::Kind::TK_RBRACE)) {
         Token id;
@@ -401,8 +419,14 @@ ASTNode::ID Parser::enumDeclaration() {
    (COMMA parameter)* RPAREN (block | SEMICOLON)) | SEMICOLON) | interfaceBlock) */
 ASTNode::ID Parser::declaration() {
     Token lookahead = this->peek();
-    if (lookahead.fKind == Token::Kind::TK_ENUM) {
-        return this->enumDeclaration();
+    switch (lookahead.fKind) {
+        case Token::Kind::TK_ENUM:
+            return this->enumDeclaration();
+        case Token::Kind::TK_SEMICOLON:
+            this->error(lookahead.fOffset, "expected a declaration, but found ';'");
+            return ASTNode::ID::Invalid();
+        default:
+            break;
     }
     Modifiers modifiers = this->modifiers();
     lookahead = this->peek();
@@ -497,9 +521,18 @@ ASTNode::ID Parser::structDeclaration() {
             return ASTNode::ID::Invalid();
         }
         ASTNode& declsNode = getNode(decls);
+        Modifiers modifiers = declsNode.begin()->getModifiers();
+        if (modifiers.fFlags != Modifiers::kNo_Flag) {
+            String desc = modifiers.description();
+            desc.pop_back();  // remove trailing space
+            this->error(declsNode.fOffset,
+                        "modifier '" + desc + "' is not permitted on a struct field");
+        }
+
         const Symbol* symbol = fSymbols[(declsNode.begin() + 1)->getTypeData().fName];
-        SkASSERT(symbol && symbol->fKind == Symbol::kType_Kind);
-        const Type* type = (const Type*) symbol;
+        SkASSERT(symbol);
+        const Type* type = &symbol->as<Type>();
+
         for (auto iter = declsNode.begin() + 2; iter != declsNode.end(); ++iter) {
             ASTNode& var = *iter;
             ASTNode::VarData vd = var.getVarData();
@@ -510,11 +543,13 @@ ASTNode::ID Parser::structDeclaration() {
                     return ASTNode::ID::Invalid();
                 }
                 uint64_t columns = size.getInt();
-                String name = type->name() + "[" + to_string(columns) + "]";
+                String typeName = type->name() + "[" + to_string(columns) + "]";
                 type = fSymbols.takeOwnershipOfSymbol(
-                        std::make_unique<Type>(name, Type::kArray_Kind, *type, (int)columns));
+                        std::make_unique<Type>(typeName, Type::TypeKind::kArray, *type,
+                                               (int)columns));
             }
-            fields.push_back(Type::Field(declsNode.begin()->getModifiers(), vd.fName, type));
+
+            fields.push_back(Type::Field(modifiers, vd.fName, type));
             if (vd.fSizeCount ? (var.begin() + (vd.fSizeCount - 1))->fNext : var.fFirstChild) {
                 this->error(declsNode.fOffset, "initializers are not permitted on struct fields");
             }
@@ -523,7 +558,12 @@ ASTNode::ID Parser::structDeclaration() {
     if (!this->expect(Token::Kind::TK_RBRACE, "'}'")) {
         return ASTNode::ID::Invalid();
     }
-    fSymbols.add(this->text(name), std::make_unique<Type>(name.fOffset, this->text(name), fields));
+    auto newType = std::make_unique<Type>(name.fOffset, this->text(name), fields);
+    if (struct_is_too_deeply_nested(*newType, kMaxStructDepth)) {
+        this->error(name.fOffset, "struct '" + this->text(name) + "' is too deeply nested");
+        return ASTNode::ID::Invalid();
+    }
+    fSymbols.add(std::move(newType));
     RETURN_NODE(name.fOffset, ASTNode::Kind::kType,
                 ASTNode::TypeData(this->text(name), true, false));
 }
@@ -565,6 +605,10 @@ ASTNode::ID Parser::varDeclarationEnd(Modifiers mods, ASTNode::ID type, StringFr
             }
         }
         ++vd.fSizeCount;
+        if (vd.fSizeCount > kMaxArrayDimensionality) {
+            this->error(this->peek(), "array has too many dimensions");
+            return ASTNode::ID::Invalid();
+        }
     }
     getNode(currentVar).setVarData(vd);
     if (this->checkNext(Token::Kind::TK_EQ)) {
@@ -575,12 +619,12 @@ ASTNode::ID Parser::varDeclarationEnd(Modifiers mods, ASTNode::ID type, StringFr
         getNode(currentVar).addChild(value);
     }
     while (this->checkNext(Token::Kind::TK_COMMA)) {
-        Token name;
-        if (!this->expect(Token::Kind::TK_IDENTIFIER, "an identifier", &name)) {
+        Token identifierName;
+        if (!this->expect(Token::Kind::TK_IDENTIFIER, "an identifier", &identifierName)) {
             return ASTNode::ID::Invalid();
         }
         currentVar = ASTNode::ID(fFile->fNodes.size());
-        vd = ASTNode::VarData(this->text(name), 0);
+        vd = ASTNode::VarData(this->text(identifierName), 0);
         fFile->fNodes.emplace_back(&fFile->fNodes, -1, ASTNode::Kind::kVarDeclaration);
         getNode(result).addChild(currentVar);
         while (this->checkNext(Token::Kind::TK_LBRACKET)) {
@@ -936,7 +980,7 @@ Layout Parser::layout() {
 
 /* layout? (UNIFORM | CONST | IN | OUT | INOUT | LOWP | MEDIUMP | HIGHP | FLAT | NOPERSPECTIVE |
             READONLY | WRITEONLY | COHERENT | VOLATILE | RESTRICT | BUFFER | PLS | PLSIN |
-            PLSOUT | VARYING)* */
+            PLSOUT | VARYING | INLINE)* */
 Modifiers Parser::modifiers() {
     Layout layout = this->layout();
     int flags = 0;
@@ -1015,6 +1059,10 @@ Modifiers Parser::modifiers() {
             case Token::Kind::TK_VARYING:
                 this->nextToken();
                 flags |= Modifiers::kVarying_Flag;
+                break;
+            case Token::Kind::TK_INLINE:
+                this->nextToken();
+                flags |= Modifiers::kInline_Flag;
                 break;
             default:
                 return Modifiers(layout, flags);
@@ -2009,8 +2057,17 @@ ASTNode::ID Parser::suffix(ASTNode::ID base) {
             getNode(result).addChild(e);
             return result;
         }
-        case Token::Kind::TK_DOT: // fall through
         case Token::Kind::TK_COLONCOLON: {
+            int offset = this->peek().fOffset;
+            StringFragment text;
+            if (this->identifier(&text)) {
+                CREATE_NODE(result, offset, ASTNode::Kind::kScope, std::move(text));
+                getNode(result).addChild(base);
+                return result;
+            }
+            return ASTNode::ID::Invalid();
+        }
+        case Token::Kind::TK_DOT: {
             int offset = this->peek().fOffset;
             StringFragment text;
             if (this->identifier(&text)) {
@@ -2018,7 +2075,7 @@ ASTNode::ID Parser::suffix(ASTNode::ID base) {
                 getNode(result).addChild(base);
                 return result;
             }
-            [[fallthrough]]; // FIXME(ethannicholas)
+            [[fallthrough]];
         }
         case Token::Kind::TK_FLOAT_LITERAL: {
             // Swizzles that start with a constant number, e.g. '.000r', will be tokenized as

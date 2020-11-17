@@ -679,9 +679,7 @@ bool SkAAClip::setRect(const SkRect& r, bool doAA) {
 
     // TODO: special case this
 
-    SkPath path;
-    path.addRect(r);
-    return this->setPath(path, nullptr, doAA);
+    return this->setPath(SkPath::Rect(r), nullptr, doAA);
 }
 
 static void append_run(SkTDArray<uint8_t>& array, uint8_t value, int count) {
@@ -1336,12 +1334,11 @@ bool SkAAClip::setPath(const SkPath& path, const SkRegion* clip, bool doAA) {
 
     Builder        builder(ibounds);
     BuilderBlitter blitter(&builder);
-    const SkPathView view = path.view();
 
     if (doAA) {
-        SkScan::AntiFillPath(view, snugClip, &blitter, true);
+        SkScan::AntiFillPath(path, snugClip, &blitter, true);
     } else {
-        SkScan::FillPath(view, snugClip, &blitter);
+        SkScan::FillPath(path, snugClip, &blitter);
     }
 
     blitter.finish();
@@ -1547,6 +1544,12 @@ static void operateY(SkAAClip::Builder& builder, const SkAAClip& A,
     SkASSERT(!iterB.done());
     int topB = iterB.top();
     int botB = iterB.bottom();
+
+#if defined(SK_BUILD_FOR_FUZZER)
+    if ((botA - topA) > 100000 || (botB - topB) > 100000) {
+        return;
+    }
+#endif
 
     do {
         const uint8_t* rowA = nullptr;

@@ -16,7 +16,7 @@
 
 #include "include/gpu/GrDirectContext.h"
 #include "src/gpu/GrBitmapTextureMaker.h"
-#include "src/gpu/GrContextPriv.h"
+#include "src/gpu/GrDirectContextPriv.h"
 #include "src/gpu/GrImageInfo.h"
 #include "src/gpu/GrRenderTargetContext.h"
 
@@ -37,6 +37,7 @@ public:
     GrConfigConversionEffect(const GrConfigConversionEffect& src);
     std::unique_ptr<GrFragmentProcessor> clone() const override;
     const char* name() const override { return "ConfigConversionEffect"; }
+    bool usesExplicitReturn() const override;
     PMConversion pmConversion;
 
 private:
@@ -54,6 +55,6 @@ private:
     SkString onDumpInfo() const override;
 #endif
     GR_DECLARE_FRAGMENT_PROCESSOR_TEST
-    typedef GrFragmentProcessor INHERITED;
+    using INHERITED = GrFragmentProcessor;
 };
 #endif

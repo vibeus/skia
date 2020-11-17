@@ -11,7 +11,7 @@
 #include "include/gpu/GrDirectContext.h"
 #include "include/gpu/GrRecordingContext.h"
 #include "src/gpu/GrColor.h"
-#include "src/gpu/GrContextPriv.h"
+#include "src/gpu/GrDirectContextPriv.h"
 #include "src/gpu/GrGeometryProcessor.h"
 #include "src/gpu/GrImageInfo.h"
 #include "src/gpu/GrMemoryPool.h"
@@ -86,7 +86,7 @@ private:
     };
 
     friend class GLSLPipelineDynamicStateTestProcessor;
-    typedef GrGeometryProcessor INHERITED;
+    using INHERITED = GrGeometryProcessor;
 };
 constexpr GrPrimitiveProcessor::Attribute GrPipelineDynamicStateTestProcessor::kAttributes[];
 
@@ -119,16 +119,14 @@ class GrPipelineDynamicStateTestOp : public GrDrawOp {
 public:
     DEFINE_OP_CLASS_ID
 
-    static std::unique_ptr<GrDrawOp> Make(GrRecordingContext* context,
-                                          GrScissorTest scissorTest,
-                                          sk_sp<const GrBuffer> vbuff) {
-        GrOpMemoryPool* pool = context->priv().opMemoryPool();
-
-        return pool->allocate<GrPipelineDynamicStateTestOp>(scissorTest, std::move(vbuff));
+    static GrOp::Owner Make(GrRecordingContext* context,
+                            GrScissorTest scissorTest,
+                            sk_sp<const GrBuffer> vbuff) {
+        return GrOp::Make<GrPipelineDynamicStateTestOp>(context, scissorTest, std::move(vbuff));
     }
 
 private:
-    friend class GrOpMemoryPool;
+    friend class GrOp;
 
     GrPipelineDynamicStateTestOp(GrScissorTest scissorTest, sk_sp<const GrBuffer> vbuff)
         : INHERITED(ClassID())
@@ -147,7 +145,8 @@ private:
     void onPrePrepare(GrRecordingContext*,
                       const GrSurfaceProxyView* writeView,
                       GrAppliedClip*,
-                      const GrXferProcessor::DstProxyView&) override {}
+                      const GrXferProcessor::DstProxyView&,
+                      GrXferBarrierFlags renderPassXferBarriers) override {}
     void onPrepare(GrOpFlushState*) override {}
     void onExecute(GrOpFlushState* flushState, const SkRect& chainBounds) override {
         GrPipeline pipeline(fScissorTest, SkBlendMode::kSrc,
@@ -165,8 +164,10 @@ private:
                                   flushState->proxy()->backendFormat(),
                                   flushState->writeView()->origin(),
                                   &pipeline,
+                                  &GrUserStencilSettings::kUnused,
                                   geomProc,
-                                  GrPrimitiveType::kTriangleStrip);
+                                  GrPrimitiveType::kTriangleStrip, 0,
+                                  flushState->renderPassBarriers());
 
         flushState->bindPipeline(programInfo, SkRect::MakeIWH(kScreenSize, kScreenSize));
         for (int i = 0; i < 4; ++i) {
@@ -180,7 +181,7 @@ private:
     GrScissorTest               fScissorTest;
     const sk_sp<const GrBuffer> fVertexBuffer;
 
-    typedef GrDrawOp INHERITED;
+    using INHERITED = GrDrawOp;
 };
 
 DEF_GPUTEST_FOR_RENDERING_CONTEXTS(GrPipelineDynamicStateTest, reporter, ctxInfo) {

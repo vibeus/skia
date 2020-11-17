@@ -9,6 +9,7 @@
 #include "include/core/SkPath.h"
 #include "include/core/SkPoint.h"
 #include "include/core/SkString.h"
+#include "include/private/SkTPin.h"
 #include "src/gpu/geometry/GrPathUtils.h"
 #include "src/gpu/ops/GrAAConvexTessellator.h"
 
@@ -378,7 +379,7 @@ bool GrAAConvexTessellator::computePtAlongBisector(int startIdx,
 }
 
 bool GrAAConvexTessellator::extractFromPath(const SkMatrix& m, const SkPath& path) {
-    SkASSERT(SkPathConvexityType::kConvex == path.getConvexityType());
+    SkASSERT(path.isConvex());
 
     SkRect bounds = path.getBounds();
     m.mapRect(&bounds);

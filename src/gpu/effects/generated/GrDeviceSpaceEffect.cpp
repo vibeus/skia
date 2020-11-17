@@ -24,12 +24,12 @@ public:
         GrGLSLFPFragmentBuilder* fragBuilder = args.fFragBuilder;
         const GrDeviceSpaceEffect& _outer = args.fFp.cast<GrDeviceSpaceEffect>();
         (void)_outer;
-        SkString _coords203("sk_FragCoord.xy");
-        SkString _sample203 = this->invokeChild(0, args, _coords203.c_str());
+        SkString _coords0("sk_FragCoord.xy");
+        SkString _sample0 = this->invokeChild(0, args, _coords0.c_str());
         fragBuilder->codeAppendf(
                 R"SkSL(%s = %s;
 )SkSL",
-                args.fOutputColor, _sample203.c_str());
+                args.fOutputColor, _sample0.c_str());
     }
 
 private:
@@ -46,6 +46,7 @@ bool GrDeviceSpaceEffect::onIsEqual(const GrFragmentProcessor& other) const {
     (void)that;
     return true;
 }
+bool GrDeviceSpaceEffect::usesExplicitReturn() const { return false; }
 GrDeviceSpaceEffect::GrDeviceSpaceEffect(const GrDeviceSpaceEffect& src)
         : INHERITED(kGrDeviceSpaceEffect_ClassID, src.optimizationFlags()) {
     this->cloneAndRegisterAllChildProcessors(src);

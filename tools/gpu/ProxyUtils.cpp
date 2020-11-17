@@ -8,7 +8,7 @@
 #include "include/core/SkColor.h"
 #include "include/gpu/GrBackendSurface.h"
 #include "include/gpu/GrDirectContext.h"
-#include "src/gpu/GrContextPriv.h"
+#include "src/gpu/GrDirectContextPriv.h"
 #include "src/gpu/GrDrawingManager.h"
 #include "src/gpu/GrGpu.h"
 #include "src/gpu/GrImageInfo.h"
@@ -67,6 +67,7 @@ GrProgramInfo* CreateProgramInfo(const GrCaps* caps,
                                  GrGeometryProcessor* geomProc,
                                  SkBlendMode blendMode,
                                  GrPrimitiveType primitiveType,
+                                 GrXferBarrierFlags renderPassXferBarriers,
                                  GrPipeline::InputFlags flags,
                                  const GrUserStencilSettings* stencilSettings) {
 
@@ -83,7 +84,8 @@ GrProgramInfo* CreateProgramInfo(const GrCaps* caps,
     return GrSimpleMeshDrawOpHelper::CreateProgramInfo(caps, arena, writeView,
                                                        std::move(appliedClip), dstProxyView,
                                                        geomProc, std::move(processors),
-                                                       primitiveType, flags, stencilSettings);
+                                                       primitiveType, renderPassXferBarriers, flags,
+                                                       stencilSettings);
 }
 
 
