@@ -1615,11 +1615,6 @@ void SkStroke::strokePathChopped(const SkPath& src, std::vector<SkPath>* result,
             case SkPath::kMove_Verb:
                 stroker.moveTo(pts[0]);
                 last_point = pts[0];
-
-                // avoid chopping on close verb
-                if (verb_count > 0) {
-                  verb_count--;
-                }
                 break;
             case SkPath::kLine_Verb:
                 stroker.lineTo(pts[1], &iter);     
