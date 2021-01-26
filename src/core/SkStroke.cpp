@@ -1620,7 +1620,7 @@ void SkStroke::strokePathChopped(const SkPath& src, std::vector<SkPath>* result,
                 stroker.lineTo(pts[1], &iter);     
                 if (++verb_count > chop_verbs) {
                     auto dst = &result->emplace_back();
-                    stroker.chop(dst, lastSegment == SkPath::kLine_Verb, last_point);
+                    stroker.chop(dst, true, last_point);
                     verb_count = 0;
                     stroker.lineTo(pts[1], &iter);     
                 }
@@ -1631,7 +1631,7 @@ void SkStroke::strokePathChopped(const SkPath& src, std::vector<SkPath>* result,
                 stroker.quadTo(pts[1], pts[2]);
                 if (++verb_count > chop_verbs) {
                     auto dst = &result->emplace_back();
-                    stroker.chop(dst, lastSegment == SkPath::kLine_Verb, last_point);
+                    stroker.chop(dst, false, last_point);
                     verb_count = 0;
                     stroker.quadTo(pts[1], pts[2]);   
                 }
@@ -1642,7 +1642,7 @@ void SkStroke::strokePathChopped(const SkPath& src, std::vector<SkPath>* result,
                 stroker.conicTo(pts[1], pts[2], iter.conicWeight());
                 if (++verb_count > chop_verbs) {
                     auto dst = &result->emplace_back();
-                    stroker.chop(dst, lastSegment == SkPath::kLine_Verb, last_point);
+                    stroker.chop(dst, false, last_point);
                     verb_count = 0;
                     stroker.conicTo(pts[1], pts[2], iter.conicWeight());
                 }
@@ -1654,7 +1654,7 @@ void SkStroke::strokePathChopped(const SkPath& src, std::vector<SkPath>* result,
                 stroker.cubicTo(pts[1], pts[2], pts[3]);
                 if (++verb_count > chop_verbs) {
                     auto dst = &result->emplace_back();
-                    stroker.chop(dst, lastSegment == SkPath::kLine_Verb, last_point);
+                    stroker.chop(dst, false, last_point);
                     verb_count = 0;
                     stroker.cubicTo(pts[1], pts[2], pts[3]);
                 }
