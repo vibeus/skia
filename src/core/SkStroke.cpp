@@ -1617,12 +1617,12 @@ void SkStroke::strokePathChopped(const SkPath& src, std::vector<SkPath>* result,
                 last_point = pts[0];
                 break;
             case SkPath::kLine_Verb:
-                stroker.lineTo(pts[1], &iter);     
+                stroker.lineTo(pts[1], &iter);
                 if (++verb_count > chop_verbs) {
                     auto dst = &result->emplace_back();
                     stroker.chop(dst, true, last_point);
                     verb_count = 0;
-                    stroker.lineTo(pts[1], &iter);     
+                    stroker.lineTo(pts[1], &iter);
                 }
                 lastSegment = SkPath::kLine_Verb;
                 last_point = pts[1];
@@ -1633,7 +1633,7 @@ void SkStroke::strokePathChopped(const SkPath& src, std::vector<SkPath>* result,
                     auto dst = &result->emplace_back();
                     stroker.chop(dst, false, last_point);
                     verb_count = 0;
-                    stroker.quadTo(pts[1], pts[2]);   
+                    stroker.quadTo(pts[1], pts[2]);
                 }
                 lastSegment = SkPath::kQuad_Verb;
                 last_point = pts[2];
