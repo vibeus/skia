@@ -1614,30 +1614,49 @@ void SkStroke::strokePathChopped(const SkPath& src, std::vector<SkPath>* result,
             case SkPath::kMove_Verb:
                 stroker.moveTo(pts[0]);
                 last_point = pts[0];
-
-                // avoid chopping on close verb
-                if (verb_count > 0) {
-                  verb_count--;
-                }
                 break;
             case SkPath::kLine_Verb:
                 stroker.lineTo(pts[1], &iter);
+                if (++verb_count > chop_verbs) {
+                    auto dst = &result->emplace_back();
+                    stroker.chop(dst, true, last_point);
+                    verb_count = 0;
+                    stroker.lineTo(pts[1], &iter);
+                }
                 lastSegment = SkPath::kLine_Verb;
                 last_point = pts[1];
                 break;
             case SkPath::kQuad_Verb:
                 stroker.quadTo(pts[1], pts[2]);
+                if (++verb_count > chop_verbs) {
+                    auto dst = &result->emplace_back();
+                    stroker.chop(dst, false, last_point);
+                    verb_count = 0;
+                    stroker.quadTo(pts[1], pts[2]);
+                }
                 lastSegment = SkPath::kQuad_Verb;
                 last_point = pts[2];
                 break;
             case SkPath::kConic_Verb: {
                 stroker.conicTo(pts[1], pts[2], iter.conicWeight());
+                if (++verb_count > chop_verbs) {
+                    auto dst = &result->emplace_back();
+                    stroker.chop(dst, false, last_point);
+                    verb_count = 0;
+                    stroker.conicTo(pts[1], pts[2], iter.conicWeight());
+                }
                 lastSegment = SkPath::kConic_Verb;
                 last_point = pts[3];
                 break;
             } break;
             case SkPath::kCubic_Verb:
                 stroker.cubicTo(pts[1], pts[2], pts[3]);
+                if (++verb_count > chop_verbs) {
+                    auto dst = &result->emplace_back();
+                    stroker.chop(dst, false, last_point);
+                    verb_count = 0;
+                    stroker.cubicTo(pts[1], pts[2], pts[3]);
+                }
                 lastSegment = SkPath::kCubic_Verb;
                 last_point = pts[3];
                 break;
@@ -1661,19 +1680,9 @@ void SkStroke::strokePathChopped(const SkPath& src, std::vector<SkPath>* result,
                 }
                 stroker.close(lastSegment == SkPath::kLine_Verb);
 
-                // avoid chopping on close verb
-                if (verb_count > 0) {
-                  verb_count--;
-                }
                 break;
             case SkPath::kDone_Verb:
                 goto DONE;
-        }
-
-        if (++verb_count > chop_verbs) {
-            auto dst = &result->emplace_back();
-            stroker.chop(dst, lastSegment == SkPath::kLine_Verb, last_point);
-            verb_count = 0;
         }
     }
 DONE:
