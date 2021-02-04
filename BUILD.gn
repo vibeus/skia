@@ -3136,8 +3136,9 @@ if (is_ios && skia_enable_skottie && !skia_enable_flutter_defines) {
   }
 }
 
-executable("skia_c_api_example") {
-  sources = [ "experimental/c-api-example/skia-c-example.c" ]
-  include_dirs = [ "." ]
-  deps = [ ":skia" ]
-}
+# skia_c_api_example is disabled since it breaks build and we don't use.
+# executable("skia_c_api_example") {
+#   sources = [ "experimental/c-api-example/skia-c-example.c" ]
+#   include_dirs = [ "." ]
+#   deps = [ ":skia" ]
+# }
