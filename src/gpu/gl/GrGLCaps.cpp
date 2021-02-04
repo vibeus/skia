@@ -1559,8 +1559,8 @@ void GrGLCaps::initFormatTable(const GrGLContextInfo& ctxInfo, const GrGLInterfa
                 auto& ctInfo = info.fColorTypeInfos[ctIdx++];
                 ctInfo.fColorType = GrColorType::kAlpha_8;
                 ctInfo.fFlags = ColorTypeInfo::kUploadData_Flag | ColorTypeInfo::kRenderable_Flag;
-                ctInfo.fReadSwizzle = GrSwizzle::RRRR();
-                ctInfo.fWriteSwizzle = GrSwizzle::AAAA();
+                ctInfo.fReadSwizzle = GrSwizzle("000r");
+                ctInfo.fWriteSwizzle = GrSwizzle("a000");
                 this->setColorTypeFormat(GrColorType::kAlpha_8, GrGLFormat::kR8);
 
                 // External IO ColorTypes:
@@ -1686,7 +1686,6 @@ void GrGLCaps::initFormatTable(const GrGLContextInfo& ctxInfo, const GrGLInterfa
                     ctInfo.fColorType = GrColorType::kAlpha_8;
                     ctInfo.fFlags = ColorTypeInfo::kUploadData_Flag |
                                     ColorTypeInfo::kRenderable_Flag;
-                    ctInfo.fReadSwizzle = GrSwizzle::AAAA();
                     int idx = static_cast<int>(GrColorType::kAlpha_8);
                     if (fColorTypeToFormatTable[idx] == GrGLFormat::kUnknown) {
                         this->setColorTypeFormat(GrColorType::kAlpha_8, GrGLFormat::kALPHA8);
@@ -1801,6 +1800,79 @@ void GrGLCaps::initFormatTable(const GrGLContextInfo& ctxInfo, const GrGLInterfa
         }
     }
 
+    // Format: LUMINANCE8_ALPHA8
+    {
+        FormatInfo& info = this->getFormatInfo(GrGLFormat::kLUMINANCE8_ALPHA8);
+        info.fFormatType = FormatType::kNormalizedFixedPoint;
+        info.fInternalFormatForRenderbuffer = GR_GL_LUMINANCE8_ALPHA8;
+        info.fDefaultExternalFormat = GR_GL_LUMINANCE_ALPHA;
+        info.fDefaultExternalType = GR_GL_UNSIGNED_BYTE;
+        info.fDefaultColorType = GrColorType::kGrayAlpha_88;
+        bool la8Supported = false;
+        bool la8SizedFormatSupported = false;
+        if (GR_IS_GR_GL(standard) && !fIsCoreProfile) {
+            la8Supported = true;
+            la8SizedFormatSupported = true;
+        } else if (GR_IS_GR_GL_ES(standard)) {
+            la8Supported = true;
+            // Even on ES3 this extension is required to define LUMINANCE8_ALPHA8.
+            la8SizedFormatSupported = ctxInfo.hasExtension("GL_EXT_texture_storage");
+        } else if (GR_IS_GR_WEBGL(standard)) {
+            la8Supported = true;
+        }
+        if (la8Supported) {
+            info.fFlags = FormatInfo::kTexturable_Flag;
+        }
+        if (texStorageSupported && la8SizedFormatSupported) {
+            info.fFlags |= FormatInfo::kUseTexStorage_Flag;
+            info.fInternalFormatForTexImageOrStorage = GR_GL_LUMINANCE8_ALPHA8;
+        } else if (texImageSupportsSizedInternalFormat && la8SizedFormatSupported) {
+            info.fInternalFormatForTexImageOrStorage = GR_GL_LUMINANCE8_ALPHA8;
+        } else {
+            info.fInternalFormatForTexImageOrStorage = GR_GL_LUMINANCE_ALPHA;
+        }
+        // See note in LUMINANCE8 section about not attaching to framebuffers.
+
+        if (la8Supported) {
+            info.fColorTypeInfoCount = 1;
+            info.fColorTypeInfos = std::make_unique<ColorTypeInfo[]>(info.fColorTypeInfoCount);
+            int ctIdx = 0;
+            // Format: LUMINANCE8_ALPHA8, Surface: kGrayAlpha_88
+            {
+                auto& ctInfo = info.fColorTypeInfos[ctIdx++];
+                ctInfo.fColorType = GrColorType::kGrayAlpha_88;
+                ctInfo.fFlags = ColorTypeInfo::kUploadData_Flag;
+                int idx = static_cast<int>(GrColorType::kGrayAlpha_88);
+                if (fColorTypeToFormatTable[idx] == GrGLFormat::kUnknown) {
+                    this->setColorTypeFormat(GrColorType::kGrayAlpha_88,
+                                             GrGLFormat::kLUMINANCE8_ALPHA8);
+                }
+
+                // External IO ColorTypes:
+                ctInfo.fExternalIOFormatCount = 2;
+                ctInfo.fExternalIOFormats = std::make_unique<ColorTypeInfo::ExternalIOFormats[]>(
+                        ctInfo.fExternalIOFormatCount);
+                int ioIdx = 0;
+                // Format: LUMINANCE8, Surface: kGrayAlpha_88, Data: kGrayAlpha_88
+                {
+                    auto& ioFormat = ctInfo.fExternalIOFormats[ioIdx++];
+                    ioFormat.fColorType = GrColorType::kGrayAlpha_88;
+                    ioFormat.fExternalType = GR_GL_UNSIGNED_BYTE;
+                    ioFormat.fExternalTexImageFormat = GR_GL_LUMINANCE_ALPHA;
+                    ioFormat.fExternalReadFormat = 0;
+                }
+
+                // Format: LUMINANCE8, Surface: kGrayAlpha_88, Data: kRGBA_8888
+                {
+                    auto& ioFormat = ctInfo.fExternalIOFormats[ioIdx++];
+                    ioFormat.fColorType = GrColorType::kRGBA_8888;
+                    ioFormat.fExternalType = GR_GL_UNSIGNED_BYTE;
+                    ioFormat.fExternalTexImageFormat = 0;
+                    ioFormat.fExternalReadFormat = GR_GL_RGBA;
+                }
+            }
+        }
+    }
     // Format: BGRA8
     {
         FormatInfo& info = this->getFormatInfo(GrGLFormat::kBGRA8);
@@ -2194,8 +2266,8 @@ void GrGLCaps::initFormatTable(const GrGLContextInfo& ctxInfo, const GrGLInterfa
                 auto& ctInfo = info.fColorTypeInfos[ctIdx++];
                 ctInfo.fColorType = GrColorType::kAlpha_F16;
                 ctInfo.fFlags = ColorTypeInfo::kUploadData_Flag | ColorTypeInfo::kRenderable_Flag;
-                ctInfo.fReadSwizzle = GrSwizzle::RRRR();
-                ctInfo.fWriteSwizzle = GrSwizzle::AAAA();
+                ctInfo.fReadSwizzle = GrSwizzle("000r");
+                ctInfo.fWriteSwizzle = GrSwizzle("a000");
                 this->setColorTypeFormat(GrColorType::kAlpha_F16, GrGLFormat::kR16F);
 
                 // External IO ColorTypes:
@@ -2277,8 +2349,8 @@ void GrGLCaps::initFormatTable(const GrGLContextInfo& ctxInfo, const GrGLInterfa
                 auto& ctInfo = info.fColorTypeInfos[ctIdx++];
                 ctInfo.fColorType = GrColorType::kAlpha_F16;
                 ctInfo.fFlags = ColorTypeInfo::kUploadData_Flag;
-                ctInfo.fReadSwizzle = GrSwizzle::RRRR();
-                ctInfo.fWriteSwizzle = GrSwizzle::AAAA();
+                ctInfo.fReadSwizzle = GrSwizzle("000r");
+                ctInfo.fWriteSwizzle = GrSwizzle("aaa0");
 
                 int idx = static_cast<int>(GrColorType::kAlpha_F16);
                 if (fColorTypeToFormatTable[idx] == GrGLFormat::kUnknown) {
@@ -2344,9 +2416,6 @@ void GrGLCaps::initFormatTable(const GrGLContextInfo& ctxInfo, const GrGLInterfa
         } else {
             info.fInternalFormatForTexImageOrStorage =
                     texImageSupportsSizedInternalFormat ? GR_GL_RGB8 : GR_GL_RGB;
-        }
-        if (formatWorkarounds.fDisableRGB8ForMali400) {
-            info.fFlags = 0;
         }
 
         info.fColorTypeInfoCount = 1;
@@ -2826,8 +2895,8 @@ void GrGLCaps::initFormatTable(const GrGLContextInfo& ctxInfo, const GrGLInterfa
                 auto& ctInfo = info.fColorTypeInfos[ctIdx++];
                 ctInfo.fColorType = GrColorType::kAlpha_16;
                 ctInfo.fFlags = ColorTypeInfo::kUploadData_Flag | ColorTypeInfo::kRenderable_Flag;
-                ctInfo.fReadSwizzle = GrSwizzle::RRRR();
-                ctInfo.fWriteSwizzle = GrSwizzle::AAAA();
+                ctInfo.fReadSwizzle = GrSwizzle("000r");
+                ctInfo.fWriteSwizzle = GrSwizzle("a000");
                 this->setColorTypeFormat(GrColorType::kAlpha_16, GrGLFormat::kR16);
 
                 // External IO ColorTypes:
@@ -3223,17 +3292,16 @@ bool GrGLCaps::canCopyTexSubImage(GrGLFormat dstFormat, bool dstHasMSAARenderBuf
             // The formats don't represent color channels (i.e. may be depth stencil)
             return false;
         }
-        // The dst channels have to be a subset of the srcChannels, unless the dst is going to
-        // gray.
+        // The dst channels have to be a subset of the srcChannels, except R, RG, or RGB, channels
+        // can go to LUM. (See expansion of Table 3.9 in EXT_texture_rg).
         if ((dstChannels & srcChannels) != srcChannels) {
-            if (dstChannels == kGray_SkColorChannelFlag) {
-                // We can't copy Alpha into a Luminance channel
-                if (srcChannels == kAlpha_8_SkColorType) {
+            if (dstChannels == kGray_SkColorChannelFlag ||
+                dstChannels == kGrayAlpha_SkColorChannelFlags) {
+                // The dst can't have gray if the src is alpha-only.
+                if (srcChannels == kAlpha_SkColorChannelFlag) {
                     return false;
                 }
             } else {
-                // Currently we don't support any LA formats
-                SkASSERT((dstChannels & kGray_SkColorChannelFlag) == 0);
                 return false;
             }
         }
@@ -3687,7 +3755,8 @@ void GrGLCaps::applyDriverCorrectnessWorkarounds(const GrGLContextInfo& ctxInfo,
     // Currently the extension is advertised but fb fetch is broken on 500 series Adrenos like the
     // Galaxy S7.
     // TODO: Once this is fixed we can update the check here to look at a driver version number too.
-    if (kAdreno5xx_GrGLRenderer == ctxInfo.renderer()) {
+    if (kAdreno530_GrGLRenderer == ctxInfo.renderer() ||
+        kAdreno5xx_other_GrGLRenderer == ctxInfo.renderer()) {
         shaderCaps->fFBFetchSupport = false;
     }
 
@@ -3830,7 +3899,8 @@ void GrGLCaps::applyDriverCorrectnessWorkarounds(const GrGLContextInfo& ctxInfo,
     // for now until its own denylists can be updated.
     if (kAdreno430_GrGLRenderer == ctxInfo.renderer() ||
         kAdreno4xx_other_GrGLRenderer == ctxInfo.renderer() ||
-        kAdreno5xx_GrGLRenderer == ctxInfo.renderer() ||
+        kAdreno530_GrGLRenderer == ctxInfo.renderer() ||
+        kAdreno5xx_other_GrGLRenderer == ctxInfo.renderer() ||
         kIntel_GrGLDriver == ctxInfo.driver() ||
         kChromium_GrGLDriver == ctxInfo.driver()) {
         fBlendEquationSupport = kBasic_BlendEquationSupport;
@@ -3913,6 +3983,14 @@ void GrGLCaps::applyDriverCorrectnessWorkarounds(const GrGLContextInfo& ctxInfo,
         fDriverDisableMSAACCPR = true;
     }
 
+    if (kIntel_GrGLVendor == ctxInfo.vendor() ||  // IntelIris640 drops draws completely.
+        ctxInfo.renderer() == kMaliT_GrGLRenderer ||  // Some curves appear flat on GalaxyS6.
+        ctxInfo.renderer() == kAdreno3xx_GrGLRenderer ||
+        ctxInfo.renderer() == kAdreno430_GrGLRenderer ||
+        ctxInfo.renderer() == kAdreno4xx_other_GrGLRenderer) {  // We get garbage on Adreno405.
+        fDisableTessellationPathRenderer = true;
+    }
+
     // http://skbug.com/9739
     bool isNVIDIAPascal =
             kNVIDIA_GrGLDriver == ctxInfo.driver() &&
@@ -3990,9 +4068,6 @@ void GrGLCaps::applyDriverCorrectnessWorkarounds(const GrGLContextInfo& ctxInfo,
     formatWorkarounds->fDisableBGRATextureStorageForIntelWindowsES =
             kIntel_GrGLDriver == ctxInfo.driver() && GR_IS_GR_GL_ES(ctxInfo.standard());
 #endif
-
-    // Mali-400 fails ReadPixels tests, mostly with non-0xFF alpha values when read as GL_RGBA8.
-    formatWorkarounds->fDisableRGB8ForMali400 = kMali4xx_GrGLRenderer == ctxInfo.renderer();
 
     // On the Intel Iris 6100, interacting with LUM16F seems to confuse the driver. After
     // writing to/reading from a LUM16F texture reads from/writes to other formats behave
@@ -4075,6 +4150,13 @@ void GrGLCaps::applyDriverCorrectnessWorkarounds(const GrGLContextInfo& ctxInfo,
     if (ctxInfo.angleBackend() == GrGLANGLEBackend::kD3D9 &&
         ctxInfo.angleVendor() == GrGLANGLEVendor::kAMD) {
         fProgramBinarySupport = false;
+    }
+
+    // Two Adreno 530 devices (LG G6 and OnePlus 3T) appear to have driver bugs that are corrupting
+    // SkSL::Program memory. To get better/different crash reports, disable node-pooling, so that
+    // program allocations aren't reused.  (crbug.com/1147008, crbug.com/1164271)
+    if (kAdreno530_GrGLRenderer == ctxInfo.renderer()) {
+        shaderCaps->fUseNodePools = false;
     }
 }
 
@@ -4492,7 +4574,10 @@ uint64_t GrGLCaps::computeFormatKey(const GrBackendFormat& format) const {
     return (uint64_t)(glFormat);
 }
 
-GrProgramDesc GrGLCaps::makeDesc(GrRenderTarget* rt, const GrProgramInfo& programInfo) const {
+GrProgramDesc GrGLCaps::makeDesc(GrRenderTarget* rt,
+                                 const GrProgramInfo& programInfo,
+                                 ProgramDescOverrideFlags overrideFlags) const {
+    SkASSERT(overrideFlags == ProgramDescOverrideFlags::kNone);
     GrProgramDesc desc;
     SkDEBUGCODE(bool result =) GrProgramDesc::Build(&desc, rt, programInfo, *this);
     SkASSERT(result == desc.isValid());
@@ -4534,6 +4619,8 @@ std::vector<GrCaps::TestFormatColorTypeCombination> GrGLCaps::getTestingCombinat
           GrBackendFormat::MakeGL(GR_GL_LUMINANCE8, GR_GL_TEXTURE_2D) },
         { GrColorType::kGray_8,
           GrBackendFormat::MakeGL(GR_GL_R8, GR_GL_TEXTURE_2D) },
+        { GrColorType::kGrayAlpha_88,
+          GrBackendFormat::MakeGL(GR_GL_LUMINANCE8_ALPHA8, GR_GL_TEXTURE_2D) },
         { GrColorType::kAlpha_F16,
           GrBackendFormat::MakeGL(GR_GL_R16F, GR_GL_TEXTURE_2D) },
         { GrColorType::kAlpha_F16,

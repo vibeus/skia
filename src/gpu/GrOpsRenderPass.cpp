@@ -35,7 +35,7 @@ void GrOpsRenderPass::end() {
     this->resetActiveBuffers();
 }
 
-void GrOpsRenderPass::clear(const GrScissorState& scissor, const SkPMColor4f& color) {
+void GrOpsRenderPass::clear(const GrScissorState& scissor, std::array<float, 4> color) {
     SkASSERT(fRenderTarget);
     // A clear at this level will always be a true clear, so make sure clears were not supposed to
     // be redirected to draws instead
@@ -68,10 +68,6 @@ void GrOpsRenderPass::bindPipeline(const GrProgramInfo& programInfo, const SkRec
     }
     if (programInfo.pipeline().usesConservativeRaster()) {
         SkASSERT(this->gpu()->caps()->conservativeRasterSupport());
-        // Conservative raster, by default, only supports triangles. Implementations can
-        // optionally indicate that they also support points and lines, but we don't currently
-        // query or track that info.
-        SkASSERT(GrIsPrimTypeTris(programInfo.primitiveType()));
     }
     if (programInfo.pipeline().isWireframe()) {
          SkASSERT(this->gpu()->caps()->wireframeSupport());

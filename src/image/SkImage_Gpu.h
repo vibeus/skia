@@ -20,7 +20,6 @@ class GrRecordingContext;
 class GrTexture;
 
 class SkBitmap;
-struct SkYUVAIndex;
 
 class SkImage_Gpu : public SkImage_GpuBase {
 public:
@@ -54,7 +53,7 @@ public:
     void onAsyncRescaleAndReadPixels(const SkImageInfo&,
                                      const SkIRect& srcRect,
                                      RescaleGamma,
-                                     SkFilterQuality,
+                                     RescaleMode,
                                      ReadPixelsCallback,
                                      ReadPixelsContext) override;
 
@@ -63,7 +62,7 @@ public:
                                            const SkIRect& srcRect,
                                            const SkISize& dstSize,
                                            RescaleGamma,
-                                           SkFilterQuality,
+                                           RescaleMode,
                                            ReadPixelsCallback,
                                            ReadPixelsContext) override;
 
@@ -81,16 +80,6 @@ public:
                                              PromiseImageTextureFulfillProc textureFulfillProc,
                                              PromiseImageTextureReleaseProc textureReleaseProc,
                                              PromiseImageTextureContext textureContext);
-
-    static sk_sp<SkImage> ConvertYUVATexturesToRGB(
-            GrRecordingContext*,
-            SkYUVColorSpace,
-            const GrBackendTexture[],
-            const SkYUVAIndex[SkYUVAIndex::kIndexCount],
-            SkISize,
-            GrSurfaceOrigin,
-            GrRenderTargetContext*,
-            sk_sp<GrRefCntedCallback> releaseHelper = nullptr);
 
 private:
     GrSurfaceProxyView fView;

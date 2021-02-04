@@ -105,7 +105,8 @@ TextLine::TextLine(ParagraphImpl* owner,
         , fHasShadows(false)
         , fHasDecorations(false)
         , fAscentStyle(LineMetricStyle::CSS)
-        , fDescentStyle(LineMetricStyle::CSS) {
+        , fDescentStyle(LineMetricStyle::CSS)
+        , fTextBlobCachePopulated(false) {
     // Reorder visual runs
     auto& start = owner->cluster(fGhostClusterRange.start);
     auto& end = owner->cluster(fGhostClusterRange.end - 1);
@@ -192,21 +193,27 @@ SkRect TextLine::paint(SkCanvas* textCanvas, SkScalar x, SkScalar y) {
             });
     }
 
-    this->iterateThroughVisualRuns(false,
-            [textCanvas, x, y, &bounds, this]
-            (const Run* run, SkScalar runOffsetInLine, TextRange textRange, SkScalar* runWidthInLine) {
-            if (run->placeholderStyle() != nullptr) {
-                *runWidthInLine = run->advance().fX;
+    if (!fTextBlobCachePopulated) {
+        this->iterateThroughVisualRuns(false,
+                [textCanvas, x, y, this]
+                (const Run* run, SkScalar runOffsetInLine, TextRange textRange, SkScalar* runWidthInLine) {
+                if (run->placeholderStyle() != nullptr) {
+                    *runWidthInLine = run->advance().fX;
+                    return true;
+                }
+                *runWidthInLine = this->iterateThroughSingleRunByStyles(
+                run, runOffsetInLine, textRange, StyleType::kForeground,
+                [textCanvas, x, y, this](TextRange textRange, const TextStyle& style, const ClipContext& context) {
+                    this->buildTextBlob(textCanvas, x, y, textRange, style, context);
+                });
                 return true;
-            }
-            *runWidthInLine = this->iterateThroughSingleRunByStyles(
-            run, runOffsetInLine, textRange, StyleType::kForeground,
-            [textCanvas, x, y, &bounds, this](TextRange textRange, const TextStyle& style, const ClipContext& context) {
-                auto textBounds = this->paintText(textCanvas, x, y, textRange, style, context);
-                bounds.joinPossiblyEmptyRect(textBounds);
             });
-            return true;
-        });
+        fTextBlobCachePopulated = true;
+    }
+    for (auto& record : fTextBlobCache) {
+        record.paint(textCanvas, x, y);
+        bounds.joinPossiblyEmptyRect(record.fBounds);
+    }
 
     if (fHasDecorations) {
         this->iterateThroughVisualRuns(false,
@@ -283,55 +290,60 @@ SkScalar TextLine::metricsWithoutMultiplier(TextHeightBehavior correction) {
     SkScalar delta = 0;
     if (correction  == TextHeightBehavior::kDisableFirstAscent) {
         delta += (this->fSizes.fAscent - result.fAscent);
-        this->fSizes.fAscent -= delta;
+        this->fSizes.fAscent = result.fAscent;
         this->fAscentStyle = LineMetricStyle::Typographic;
     } else if (correction  == TextHeightBehavior::kDisableLastDescent) {
         delta -= (this->fSizes.fDescent - result.fDescent);
-        this->fSizes.fDescent -= delta;
+        this->fSizes.fDescent = result.fDescent;
         this->fDescentStyle = LineMetricStyle::Typographic;
     }
     fAdvance.fY += delta;
     return delta;
 }
 
-SkRect TextLine::paintText(SkCanvas* canvas, SkScalar x, SkScalar y, TextRange textRange, const TextStyle& style, const ClipContext& context) const {
-
+void TextLine::buildTextBlob(SkCanvas* canvas, SkScalar x, SkScalar y, TextRange textRange, const TextStyle& style, const ClipContext& context) {
     if (context.run->placeholderStyle() != nullptr) {
-        return SkRect::MakeEmpty();
+        return;
     }
 
-    SkPaint paint;
+    fTextBlobCache.emplace_back();
+    TextBlobRecord& record = fTextBlobCache.back();
+
     if (style.hasForeground()) {
-        paint = style.getForeground();
+        record.fPaint = style.getForeground();
     } else {
-        paint.setColor(style.getColor());
+        record.fPaint.setColor(style.getColor());
     }
 
     // TODO: This is the change for flutter, must be removed later
     SkTextBlobBuilder builder;
     context.run->copyTo(builder, SkToU32(context.pos), context.size);
+    record.fClippingNeeded = context.clippingNeeded;
     if (context.clippingNeeded) {
-        canvas->save();
-        canvas->clipRect(extendHeight(context).makeOffset(this->offset() + SkPoint::Make(x, y)));
+        record.fClipRect = extendHeight(context).makeOffset(this->offset());
     }
 
-    SkRect textBounds = SkRect::MakeEmpty();
     SkScalar correctedBaseline = SkScalarFloorToScalar(this->baseline() + 0.5);
-    auto blob = builder.make();
-    if (blob != nullptr) {
-        auto bounds = blob->bounds();
+    record.fBlob = builder.make();
+    if (record.fBlob != nullptr) {
+        auto bounds = record.fBlob->bounds();
         bounds.offset(x + this->offset().fX, y + this->offset().fY);
-        textBounds.joinPossiblyEmptyRect(bounds);
+        record.fBounds.joinPossiblyEmptyRect(bounds);
     }
 
-    canvas->drawTextBlob(blob,
-        x + this->offset().fX + context.fTextShift, y + this->offset().fY + correctedBaseline, paint);
+    record.fOffset = SkPoint::Make(this->offset().fX + context.fTextShift,
+                                   this->offset().fY + correctedBaseline);
+}
 
-    if (context.clippingNeeded) {
+void TextLine::TextBlobRecord::paint(SkCanvas* canvas, SkScalar x, SkScalar y) {
+    if (fClippingNeeded) {
+        canvas->save();
+        canvas->clipRect(fClipRect.makeOffset(x, y));
+    }
+    canvas->drawTextBlob(fBlob, x + fOffset.x(), y + fOffset.y(), fPaint);
+    if (fClippingNeeded) {
         canvas->restore();
     }
-
-    return textBounds;
 }
 
 void TextLine::paintBackground(SkCanvas* canvas, SkScalar x, SkScalar y, TextRange textRange, const TextStyle& style, const ClipContext& context) const {
@@ -723,12 +735,15 @@ SkScalar TextLine::iterateThroughSingleRunByStyles(const Run* run,
     size_t size = 0;
     const TextStyle* prevStyle = nullptr;
     SkScalar textOffsetInRun = 0;
-    for (BlockIndex index = fBlockRange.start; index <= fBlockRange.end; ++index) {
+
+    const BlockIndex blockRangeSize = fBlockRange.end - fBlockRange.start;
+    for (BlockIndex index = 0; index <= blockRangeSize; ++index) {
 
         TextRange intersect;
         TextStyle* style = nullptr;
-        if (index < fBlockRange.end) {
-            auto block = fOwner->styles().begin() + index;
+        if (index < blockRangeSize) {
+            auto block = fOwner->styles().begin() +
+                 (run->leftToRight() ? fBlockRange.start + index : fBlockRange.end - index - 1);
 
             // Get the text
             intersect = intersected(block->fRange, textRange);
@@ -747,6 +762,8 @@ SkScalar TextLine::iterateThroughSingleRunByStyles(const Run* run,
                 style = &block->fStyle;
                 if (start != EMPTY_INDEX && style->matchOneAttribute(styleType, *prevStyle)) {
                     size += intersect.width();
+                    // RTL text intervals move backward
+                    start = std::min(intersect.start, start);
                     continue;
                 } else if (start == EMPTY_INDEX ) {
                     // First time only
@@ -1154,7 +1171,7 @@ PositionWithAffinity TextLine::getGlyphPositionAtCoordinate(SkScalar dx) {
                                          : SkScalarFloorToInt(delta / averageUtf8Width);
                     insideGlypheme = averageUtf8Width < delta && delta < glyphemePosWidth - averageUtf8Width;
                     center = glyphemePosLeft + averageUtf8Width * insideUtf8Offset + averageUtf8Width / 2;
-                    utf16Index += insideUtf8Offset; // TODO: adding a utf8 offset to a utf16 index
+                    // Keep UTF16 index as is
                 }
                 if ((dx < center) == context.run->leftToRight() || insideGlypheme) {
                     result = { SkToS32(utf16Index), kDownstream };

@@ -197,7 +197,7 @@ bool SkPixmap::erase(const SkColor4f& color, SkColorSpace* cs, const SkIRect* su
     return true;
 }
 
-bool SkPixmap::scalePixels(const SkPixmap& actualDst, SkFilterQuality quality) const {
+bool SkPixmap::scalePixels(const SkPixmap& actualDst, const SkSamplingOptions& sampling) const {
     // We may need to tweak how we interpret these just a little below, so we make copies.
     SkPixmap src = *this,
              dst = actualDst;
@@ -238,12 +238,11 @@ bool SkPixmap::scalePixels(const SkPixmap& actualDst, SkFilterQuality quality) c
                                               SkRect::Make(dst.bounds()),
                                               SkMatrix::kFill_ScaleToFit);
 
-    // We'll create a shader to do this draw so we have control over the bicubic clamp.
-    sk_sp<SkShader> shader = SkImageShader::Make(SkImage::MakeFromBitmap(bitmap),
+    sk_sp<SkShader> shader = SkImageShader::Make(bitmap.asImage(),
                                                  SkTileMode::kClamp,
                                                  SkTileMode::kClamp,
+                                                 &sampling,
                                                  &scale,
-                                                 (SkImageShader::FilterEnum)quality,
                                                  clampAsIfUnpremul);
 
     sk_sp<SkSurface> surface = SkSurface::MakeRasterDirect(dst.info(),
@@ -255,7 +254,6 @@ bool SkPixmap::scalePixels(const SkPixmap& actualDst, SkFilterQuality quality) c
 
     SkPaint paint;
     paint.setBlendMode(SkBlendMode::kSrc);
-    paint.setFilterQuality(quality);
     paint.setShader(std::move(shader));
     surface->getCanvas()->drawPaint(paint);
     return true;
@@ -573,7 +571,7 @@ static bool draw_orientation(const SkPixmap& dst, const SkPixmap& src, SkEncoded
     SkPaint p;
     p.setBlendMode(SkBlendMode::kSrc);
     surf->getCanvas()->concat(m);
-    surf->getCanvas()->drawBitmap(bm, 0, 0, &p);
+    surf->getCanvas()->drawImage(SkImage::MakeFromBitmap(bm), 0, 0, &p);
     return true;
 }
 
@@ -585,7 +583,7 @@ bool SkPixmapPriv::Orient(const SkPixmap& dst, const SkPixmap& src, SkEncodedOri
 
     int w = src.width();
     int h = src.height();
-    if (ShouldSwapWidthHeight(origin)) {
+    if (SkEncodedOriginSwapsWidthHeight(origin)) {
         using std::swap;
         swap(w, h);
     }
@@ -601,11 +599,6 @@ bool SkPixmapPriv::Orient(const SkPixmap& dst, const SkPixmap& src, SkEncodedOri
         return kTopLeft_SkEncodedOrigin == origin;
     }
     return draw_orientation(dst, src, origin);
-}
-
-bool SkPixmapPriv::ShouldSwapWidthHeight(SkEncodedOrigin origin) {
-    // The last four SkEncodedOrigin values involve 90 degree rotations
-    return origin >= kLeftTop_SkEncodedOrigin;
 }
 
 SkImageInfo SkPixmapPriv::SwapWidthHeight(const SkImageInfo& info) {

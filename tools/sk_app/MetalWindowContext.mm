@@ -9,6 +9,7 @@
 #include "include/core/SkSurface.h"
 #include "include/gpu/GrBackendSurface.h"
 #include "include/gpu/GrDirectContext.h"
+#include "include/gpu/mtl/GrMtlBackendContext.h"
 #include "include/gpu/mtl/GrMtlTypes.h"
 #include "src/core/SkMathPriv.h"
 #include "src/gpu/GrCaps.h"
@@ -26,6 +27,13 @@ MetalWindowContext::MetalWindowContext(const DisplayParams& params)
         , fValid(false) {
 
     fDisplayParams.fMSAASampleCount = GrNextPow2(fDisplayParams.fMSAASampleCount);
+}
+
+NSURL* MetalWindowContext::CacheURL() {
+    NSArray *paths = [[NSFileManager defaultManager] URLsForDirectory:NSCachesDirectory
+                                                            inDomains:NSUserDomainMask];
+    NSURL* cachePath = [paths objectAtIndex:0];
+    return [cachePath URLByAppendingPathComponent:@"binaryArchive.metallib"];
 }
 
 void MetalWindowContext::initializeContext() {
@@ -48,8 +56,40 @@ void MetalWindowContext::initializeContext() {
 
     fValid = this->onInitializeContext();
 
-    fContext = GrDirectContext::MakeMetal((__bridge void*)fDevice, (__bridge void*)fQueue,
-                                          fDisplayParams.fGrContextOptions);
+#if GR_METAL_SDK_VERSION >= 230
+    if (fDisplayParams.fEnableBinaryArchive) {
+        if (@available(macOS 11.0, iOS 14.0, *)) {
+            MTLBinaryArchiveDescriptor* desc = [MTLBinaryArchiveDescriptor new];
+            desc.url = CacheURL(); // try to load
+            NSError* error;
+            fPipelineArchive = [fDevice newBinaryArchiveWithDescriptor:desc error:&error];
+            if (!fPipelineArchive) {
+                desc.url = nil; // create new
+                NSError* error;
+                fPipelineArchive = [fDevice newBinaryArchiveWithDescriptor:desc error:&error];
+                if (!fPipelineArchive) {
+                    SkDebugf("Error creating MTLBinaryArchive:\n%s\n",
+                             error.debugDescription.UTF8String);
+                }
+            }
+            [desc release];
+        }
+    } else {
+        if (@available(macOS 11.0, iOS 14.0, *)) {
+            fPipelineArchive = nil;
+        }
+    }
+#endif
+
+    GrMtlBackendContext backendContext = {};
+    backendContext.fDevice.retain((__bridge GrMTLHandle)fDevice);
+    backendContext.fQueue.retain((__bridge GrMTLHandle)fQueue);
+#if GR_METAL_SDK_VERSION >= 230
+    if (@available(macOS 11.0, iOS 14.0, *)) {
+        backendContext.fBinaryArchive.retain((__bridge GrMTLHandle)fPipelineArchive);
+    }
+#endif
+    fContext = GrDirectContext::MakeMetal(backendContext, fDisplayParams.fGrContextOptions);
     if (!fContext && fDisplayParams.fMSAASampleCount > 1) {
         fDisplayParams.fMSAASampleCount /= 2;
         this->initializeContext();
@@ -69,6 +109,11 @@ void MetalWindowContext::destroyContext() {
     fMetalLayer = nil;
     fValid = false;
 
+#if GR_METAL_SDK_VERSION >= 230
+    if (@available(macOS 11.0, iOS 14.0, *)) {
+        [fPipelineArchive release];
+    }
+#endif
     [fQueue release];
     [fDevice release];
 }
@@ -125,6 +170,24 @@ void MetalWindowContext::setDisplayParams(const DisplayParams& params) {
     this->destroyContext();
     fDisplayParams = params;
     this->initializeContext();
+}
+
+void MetalWindowContext::activate(bool isActive) {
+    // serialize pipeline archive
+    if (!isActive) {
+#if GR_METAL_SDK_VERSION >= 230
+        if (@available(macOS 11.0, iOS 14.0, *)) {
+            if (fPipelineArchive) {
+                NSError* error;
+                [fPipelineArchive serializeToURL:CacheURL() error:&error];
+                if (error) {
+                    SkDebugf("Error storing MTLBinaryArchive:\n%s\n",
+                             error.debugDescription.UTF8String);
+                }
+            }
+        }
+#endif
+    }
 }
 
 }   //namespace sk_app

@@ -411,8 +411,8 @@ PORTS_SRCS_WASM = struct(
         #"src/ports/SkFontMgr_custom.cpp",
         "src/ports/SkFontMgr_custom_directory.cpp",
         "src/ports/SkFontMgr_custom_directory_factory.cpp",
-        #"src/ports/SkFontMgr_custom_embedded.cpp",
-        #"src/ports/SkFontMgr_custom_embedded_factory.cpp",
+        "src/ports/SkFontMgr_custom_embedded.cpp",
+        "src/ports/SkFontMgr_custom_embedded_factory.cpp",
         "src/ports/SkFontMgr_custom_empty.cpp",
         "src/ports/SkFontMgr_custom_empty_factory.cpp",
         # "src/ports/SkFontMgr_empty_factory.cpp",
@@ -597,8 +597,6 @@ DM_SRCS_ALL = struct(
         "tools/SkMetaData.cpp",
         "tools/SkMetaData.h",
         "tools/SkSharingProc.cpp",
-        "tools/SkVMBuilders.cpp",
-        "tools/SkVMBuilders.h",
         "tools/ToolUtils.cpp",
         "tools/ToolUtils.h",
         "tools/UrlDataManager.cpp",
@@ -732,8 +730,7 @@ def base_defines(os_conditions):
         # JPEG is in codec_limited
         "SK_CODEC_DECODES_JPEG",
         "SK_ENCODE_JPEG",
-        # Needed for some tests in dm
-        "SK_ENABLE_SKSL_INTERPRETER",
+        "SK_HAS_ANDROID_CODEC",
     ] + skia_select(
         os_conditions,
         [
@@ -760,7 +757,6 @@ def base_defines(os_conditions):
             # IOS
             [
                 "SK_BUILD_FOR_IOS",
-                "SK_BUILD_NO_OPTS",
                 "SKNX_NO_SIMD",
                 "SK_NO_COMMAND_BUFFER",  # Test tools that use thread_local.
                 "SK_GL",
@@ -770,7 +766,6 @@ def base_defines(os_conditions):
                 "SK_DISABLE_LEGACY_SHADERCONTEXT",
                 "SK_DISABLE_TRACING",
                 "SK_GL",
-                "GR_GL_CHECK_ALLOC_WITH_GET_ERROR=0",
                 "SK_SUPPORT_GPU=1",
                 "SK_DISABLE_AAA",
                 "SK_DISABLE_EFFECT_DESERIALIZATION",
@@ -790,7 +785,6 @@ def base_defines(os_conditions):
             # MACOS
             [
                 "SK_BUILD_FOR_MAC",
-                "SK_BUILD_NO_OPTS",
                 "SK_GL",
             ],
         ],

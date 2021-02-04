@@ -9,15 +9,15 @@
 #define SkImage_GpuBase_DEFINED
 
 #include "include/core/SkDeferredDisplayListRecorder.h"
-#include "include/core/SkYUVAIndex.h"
 #include "include/gpu/GrBackendSurface.h"
 #include "include/private/GrTypesPriv.h"
+#include "src/core/SkYUVAInfoLocation.h"
 #include "src/image/SkImage_Base.h"
 
 class GrColorSpaceXform;
 class GrDirectContext;
 class GrImageContext;
-class GrRenderTargetContext;
+class GrSurfaceFillContext;
 class SkColorSpace;
 
 class SkImage_GpuBase : public SkImage_Base {
@@ -59,16 +59,6 @@ public:
                                        sk_sp<SkColorSpace> cs);
     static bool ValidateCompressedBackendTexture(const GrCaps*, const GrBackendTexture& tex,
                                                  SkAlphaType);
-    static bool MakeTempTextureProxies(GrRecordingContext*, const GrBackendTexture yuvaTextures[],
-                                       int numTextures, const SkYUVAIndex [4],
-                                       GrSurfaceOrigin imageOrigin,
-                                       GrSurfaceProxyView tempViews[4],
-                                       sk_sp<GrRefCntedCallback> releaseHelper);
-
-    static SkAlphaType GetAlphaTypeFromYUVAIndices(const SkYUVAIndex yuvaIndices[4]) {
-        return -1 != yuvaIndices[SkYUVAIndex::kA_Index].fIndex ? kPremul_SkAlphaType
-                                                               : kOpaque_SkAlphaType;
-    }
 
     using PromiseImageTextureContext = SkDeferredDisplayListRecorder::PromiseImageTextureContext;
     using PromiseImageTextureFulfillProc =
@@ -90,12 +80,6 @@ protected:
                                                            GrMipmapped,
                                                            PromiseImageTextureFulfillProc,
                                                            sk_sp<GrRefCntedCallback> releaseHelper);
-
-    static bool RenderYUVAToRGBA(const GrCaps&, GrRenderTargetContext*,
-                                 const SkRect&, SkYUVColorSpace,
-                                 sk_sp<GrColorSpaceXform>,
-                                 GrSurfaceProxyView [4],
-                                 const SkYUVAIndex [4]);
 
     sk_sp<GrImageContext> fContext;
 

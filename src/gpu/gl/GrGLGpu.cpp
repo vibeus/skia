@@ -351,7 +351,7 @@ GrGLGpu::GrGLGpu(std::unique_ptr<GrGLContext> ctx, GrDirectContext* direct)
     // Toss out any pre-existing OOM that was hanging around before we got started.
     this->checkAndResetOOMed();
 
-    fCaps = sk_ref_sp(fGLContext->caps());
+    this->initCapsAndCompiler(sk_ref_sp(fGLContext->caps()));
 
     fHWTextureUnitBindings.reset(this->numTextureUnits());
 
@@ -1338,7 +1338,7 @@ sk_sp<GrTexture> GrGLGpu::onCreateTexture(SkISize dimensions,
             this->flushScissorTest(GrScissorTest::kDisabled);
             this->disableWindowRectangles();
             this->flushColorWrite(true);
-            this->flushClearColor(SK_PMColor4fTRANSPARENT);
+            this->flushClearColor({0, 0, 0, 0});
             for (int i = 0; i < mipLevelCount; ++i) {
                 if (levelClearMask & (1U << i)) {
                     this->bindSurfaceFBOForPixelOps(tex.get(), i, GR_GL_FRAMEBUFFER,
@@ -1739,14 +1739,22 @@ void GrGLGpu::flushScissorTest(GrScissorTest scissorTest) {
     }
 }
 
-void GrGLGpu::flushScissorRect(const SkIRect& scissor, int rtWidth, int rtHeight,
-                               GrSurfaceOrigin rtOrigin) {
+void GrGLGpu::flushScissorRect(const SkIRect& scissor, int rtHeight, GrSurfaceOrigin rtOrigin) {
     SkASSERT(fHWScissorSettings.fEnabled == TriState::kYes_TriState);
     auto nativeScissor = GrNativeRect::MakeRelativeTo(rtOrigin, rtHeight, scissor);
     if (fHWScissorSettings.fRect != nativeScissor) {
         GL_CALL(Scissor(nativeScissor.fX, nativeScissor.fY, nativeScissor.fWidth,
                         nativeScissor.fHeight));
         fHWScissorSettings.fRect = nativeScissor;
+    }
+}
+
+void GrGLGpu::flushViewport(const SkIRect& viewport, int rtHeight, GrSurfaceOrigin rtOrigin) {
+    auto nativeViewport = GrNativeRect::MakeRelativeTo(rtOrigin, rtHeight, viewport);
+    if (fHWViewport != nativeViewport) {
+        GL_CALL(Viewport(nativeViewport.fX, nativeViewport.fY,
+                         nativeViewport.fWidth, nativeViewport.fHeight));
+        fHWViewport = nativeViewport;
     }
 }
 
@@ -1888,8 +1896,10 @@ GrGLenum GrGLGpu::bindBuffer(GrGpuBufferType type, const GrBuffer* buffer) {
     return bufferState->fGLTarget;
 }
 
-void GrGLGpu::clear(const GrScissorState& scissor, const SkPMColor4f& color,
-                    GrRenderTarget* target, GrSurfaceOrigin origin) {
+void GrGLGpu::clear(const GrScissorState& scissor,
+                    std::array<float, 4> color,
+                    GrRenderTarget* target,
+                    GrSurfaceOrigin origin) {
     // parent class should never let us get here with no RT
     SkASSERT(target);
     SkASSERT(!this->caps()->performColorClearsAsDraws());
@@ -1904,7 +1914,7 @@ void GrGLGpu::clear(const GrScissorState& scissor, const SkPMColor4f& color,
     } else {
         this->flushRenderTarget(glRT);
     }
-    this->flushScissor(scissor, glRT->width(), glRT->height(), origin);
+    this->flushScissor(scissor, glRT->height(), origin);
     this->disableWindowRectangles();
     this->flushColorWrite(true);
     this->flushClearColor(color);
@@ -2043,7 +2053,7 @@ void GrGLGpu::clearStencilClip(const GrScissorState& scissor, bool insideStencil
     GrGLRenderTarget* glRT = static_cast<GrGLRenderTarget*>(target);
     this->flushRenderTargetNoColorWrites(glRT);
 
-    this->flushScissor(scissor, glRT->width(), glRT->height(), origin);
+    this->flushScissor(scissor, glRT->height(), origin);
     this->disableWindowRectangles();
 
     GL_CALL(StencilMask((uint32_t) clipStencilMask));
@@ -2196,12 +2206,29 @@ void GrGLGpu::flushRenderTargetNoColorWrites(GrGLRenderTarget* target) {
             GrGLenum status;
             GL_CALL_RET(status, CheckFramebufferStatus(GR_GL_FRAMEBUFFER));
             if (status != GR_GL_FRAMEBUFFER_COMPLETE) {
-                SkDebugf("GrGLGpu::flushRenderTarget glCheckFramebufferStatus %x\n", status);
+                SkDebugf("GrGLGpu::flushRenderTargetNoColorWrites glCheckFramebufferStatus %x\n",
+                         status);
             }
         }
 #endif
         fHWBoundRenderTargetUniqueID = rtID;
-        this->flushViewport(target->width(), target->height());
+        this->flushViewport(SkIRect::MakeSize(target->dimensions()),
+                            target->height(),
+                            kTopLeft_GrSurfaceOrigin); // the origin is irrelevant in this case
+    }
+    if (this->caps()->workarounds().force_update_scissor_state_when_binding_fbo0) {
+        // The driver forgets the correct scissor state when using FBO 0.
+        if (!fHWScissorSettings.fRect.isInvalid()) {
+            const GrNativeRect& r = fHWScissorSettings.fRect;
+            GL_CALL(Scissor(r.fX, r.fY, r.fWidth, r.fHeight));
+        }
+        if (fHWScissorSettings.fEnabled == kYes_TriState) {
+            GL_CALL(Disable(GR_GL_SCISSOR_TEST));
+            GL_CALL(Enable(GR_GL_SCISSOR_TEST));
+        } else if (fHWScissorSettings.fEnabled == kNo_TriState) {
+            GL_CALL(Enable(GR_GL_SCISSOR_TEST));
+            GL_CALL(Disable(GR_GL_SCISSOR_TEST));
+        }
     }
 
     if (this->glCaps().srgbWriteControl()) {
@@ -2224,14 +2251,6 @@ void GrGLGpu::flushFramebufferSRGB(bool enable) {
     } else if (!enable && kNo_TriState != fHWSRGBFramebuffer) {
         GL_CALL(Disable(GR_GL_FRAMEBUFFER_SRGB));
         fHWSRGBFramebuffer = kNo_TriState;
-    }
-}
-
-void GrGLGpu::flushViewport(int width, int height) {
-    GrNativeRect viewport = {0, 0, width, height};
-    if (fHWViewport != viewport) {
-        GL_CALL(Viewport(viewport.fX, viewport.fY, viewport.fWidth, viewport.fHeight));
-        fHWViewport = viewport;
     }
 }
 
@@ -2284,7 +2303,7 @@ void GrGLGpu::onResolveRenderTarget(GrRenderTarget* target, const SkIRect& resol
         // happens inside flushScissor since resolveRect is already in native device coordinates.
         GrScissorState scissor(rt->dimensions());
         SkAssertResult(scissor.set(resolveRect));
-        this->flushScissor(scissor, rt->width(), rt->height(), kTopLeft_GrSurfaceOrigin);
+        this->flushScissor(scissor, rt->height(), kTopLeft_GrSurfaceOrigin);
         this->disableWindowRectangles();
         GL_CALL(ResolveMultisampleFramebuffer());
     } else {
@@ -2718,8 +2737,8 @@ void GrGLGpu::flushColorWrite(bool writeColor) {
     }
 }
 
-void GrGLGpu::flushClearColor(const SkPMColor4f& color) {
-    GrGLfloat r = color.fR, g = color.fG, b = color.fB, a = color.fA;
+void GrGLGpu::flushClearColor(std::array<float, 4> color) {
+    GrGLfloat r = color[0], g = color[1], b = color[2], a = color[3];
     if (this->glCaps().clearToBoundaryValuesIsBroken() &&
         (1 == r || 0 == r) && (1 == g || 0 == g) && (1 == b || 0 == b) && (1 == a || 0 == a)) {
         static const GrGLfloat safeAlpha1 = nextafter(1.f, 2.f);
@@ -2879,8 +2898,7 @@ void GrGLGpu::unbindSurfaceFBOForPixelOps(GrSurface* surface, int mipLevel, GrGL
 }
 
 void GrGLGpu::onFBOChanged() {
-    if (this->caps()->workarounds().flush_on_framebuffer_change ||
-        this->caps()->workarounds().restore_scissor_on_fbo_change) {
+    if (this->caps()->workarounds().flush_on_framebuffer_change) {
         this->flush(FlushType::kForce);
     }
 #ifdef SK_DEBUG
@@ -2897,15 +2915,6 @@ void GrGLGpu::bindFramebuffer(GrGLenum target, GrGLuint fboid) {
     if (target == GR_GL_FRAMEBUFFER || target == GR_GL_DRAW_FRAMEBUFFER) {
         fBoundDrawFramebuffer = fboid;
     }
-
-    if (this->caps()->workarounds().restore_scissor_on_fbo_change) {
-        // The driver forgets the correct scissor when modifying the FBO binding.
-        if (!fHWScissorSettings.fRect.isInvalid()) {
-            const GrNativeRect& r = fHWScissorSettings.fRect;
-            GL_CALL(Scissor(r.fX, r.fY, r.fWidth, r.fHeight));
-        }
-    }
-
     this->onFBOChanged();
 }
 
@@ -3048,14 +3057,14 @@ bool GrGLGpu::createCopyProgram(GrTexture* srcTex) {
     SkSL::String sksl(vshaderTxt.c_str(), vshaderTxt.size());
     SkSL::Program::Settings settings;
     SkSL::String glsl;
-    std::unique_ptr<SkSL::Program> program = GrSkSLtoGLSL(*fGLContext, SkSL::Program::kVertex_Kind,
+    std::unique_ptr<SkSL::Program> program = GrSkSLtoGLSL(this, SkSL::Program::kVertex_Kind,
                                                           sksl, settings, &glsl, errorHandler);
     GrGLuint vshader = GrGLCompileAndAttachShader(*fGLContext, fCopyPrograms[progIdx].fProgram,
                                                   GR_GL_VERTEX_SHADER, glsl, &fStats, errorHandler);
     SkASSERT(program->fInputs.isEmpty());
 
     sksl.assign(fshaderTxt.c_str(), fshaderTxt.size());
-    program = GrSkSLtoGLSL(*fGLContext, SkSL::Program::kFragment_Kind, sksl, settings, &glsl,
+    program = GrSkSLtoGLSL(this, SkSL::Program::kFragment_Kind, sksl, settings, &glsl,
                            errorHandler);
     GrGLuint fshader = GrGLCompileAndAttachShader(*fGLContext, fCopyPrograms[progIdx].fProgram,
                                                   GR_GL_FRAGMENT_SHADER, glsl, &fStats,
@@ -3129,7 +3138,7 @@ bool GrGLGpu::createMipmapProgram(int progIdx) {
     vshaderTxt.append(
         "// Mipmap Program VS\n"
         "void main() {"
-        "  sk_Position.xy = a_vertex * half2(2, 2) - half2(1, 1);"
+        "  sk_Position.xy = a_vertex * half2(2) - half2(1);"
         "  sk_Position.zw = half2(0, 1);"
     );
 
@@ -3201,14 +3210,14 @@ bool GrGLGpu::createMipmapProgram(int progIdx) {
     SkSL::String sksl(vshaderTxt.c_str(), vshaderTxt.size());
     SkSL::Program::Settings settings;
     SkSL::String glsl;
-    std::unique_ptr<SkSL::Program> program = GrSkSLtoGLSL(*fGLContext, SkSL::Program::kVertex_Kind,
+    std::unique_ptr<SkSL::Program> program = GrSkSLtoGLSL(this, SkSL::Program::kVertex_Kind,
                                                           sksl, settings, &glsl, errorHandler);
     GrGLuint vshader = GrGLCompileAndAttachShader(*fGLContext, fMipmapPrograms[progIdx].fProgram,
                                                   GR_GL_VERTEX_SHADER, glsl, &fStats, errorHandler);
     SkASSERT(program->fInputs.isEmpty());
 
     sksl.assign(fshaderTxt.c_str(), fshaderTxt.size());
-    program = GrSkSLtoGLSL(*fGLContext, SkSL::Program::kFragment_Kind, sksl, settings, &glsl,
+    program = GrSkSLtoGLSL(this, SkSL::Program::kFragment_Kind, sksl, settings, &glsl,
                            errorHandler);
     GrGLuint fshader = GrGLCompileAndAttachShader(*fGLContext, fMipmapPrograms[progIdx].fProgram,
                                                   GR_GL_FRAGMENT_SHADER, glsl, &fStats,
@@ -3256,7 +3265,9 @@ bool GrGLGpu::copySurfaceAsDraw(GrSurface* dst, GrSurface* src, const SkIRect& s
     // We don't swizzle at all in our copies.
     this->bindTexture(0, GrSamplerState::Filter::kNearest, GrSwizzle::RGBA(), srcTex);
     this->bindSurfaceFBOForPixelOps(dst, 0, GR_GL_FRAMEBUFFER, kDst_TempFBOTarget);
-    this->flushViewport(dst->width(), dst->height());
+    this->flushViewport(SkIRect::MakeSize(dst->dimensions()),
+                        dst->height(),
+                        kTopLeft_GrSurfaceOrigin); // the origin is irrelevant in this case
     fHWBoundRenderTargetUniqueID.makeInvalid();
     SkIRect dstRect = SkIRect::MakeXYWH(dstPoint.fX, dstPoint.fY, w, h);
     this->flushProgram(fCopyPrograms[progIdx].fProgram);
@@ -3463,7 +3474,7 @@ bool GrGLGpu::onRegenerateMipMapLevels(GrTexture* texture) {
 
         width = std::max(1, width / 2);
         height = std::max(1, height / 2);
-        this->flushViewport(width, height);
+        this->flushViewport(SkIRect::MakeWH(width, height), height, kTopLeft_GrSurfaceOrigin);
 
         GL_CALL(DrawArrays(GR_GL_TRIANGLE_STRIP, 0, 4));
     }
@@ -3625,7 +3636,7 @@ bool GrGLGpu::onUpdateBackendTexture(const GrBackendTexture& backendTexture,
     bool result = false;
     if (data->type() == BackendTextureData::Type::kPixmaps) {
         SkTDArray<GrMipLevel> texels;
-        GrColorType colorType = SkColorTypeToGrColorType(data->pixmap(0).colorType());
+        GrColorType colorType = data->pixmap(0).colorType();
         texels.append(numMipLevels);
         for (int i = 0; i < numMipLevels; ++i) {
             texels[i] = {data->pixmap(i).addr(), data->pixmap(i).rowBytes()};

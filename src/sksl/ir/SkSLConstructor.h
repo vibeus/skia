@@ -11,9 +11,6 @@
 #include "include/private/SkTArray.h"
 #include "src/sksl/SkSLIRGenerator.h"
 #include "src/sksl/ir/SkSLExpression.h"
-#include "src/sksl/ir/SkSLFloatLiteral.h"
-#include "src/sksl/ir/SkSLIntLiteral.h"
-#include "src/sksl/ir/SkSLPrefixExpression.h"
 
 namespace SkSL {
 
@@ -45,6 +42,14 @@ public:
     std::unique_ptr<Expression> constantPropagate(const IRGenerator& irGenerator,
                                                   const DefinitionMap& definitions) override;
 
+    // If the passed-in expression is a literal, performs a constructor-conversion of the literal
+    // value to the constructor's type and returns that converted value as a new literal. e.g., the
+    // constructor expression `short(3.14)` would be represented as `FloatLiteral(3.14)` along with
+    // type `Short`, and this would result in `IntLiteral(3, type=Short)`. Returns nullptr if the
+    // expression is not a literal or the conversion cannot be made.
+    static std::unique_ptr<Expression> SimplifyConversion(const Type& constructorType,
+                                                          const Expression& expr);
+
     bool hasProperty(Property property) const override {
         for (const std::unique_ptr<Expression>& arg: this->arguments()) {
             if (arg->hasProperty(property)) {
@@ -75,6 +80,12 @@ public:
         return result;
     }
 
+    const Type& componentType() const {
+        // Returns `float` for constructors of type `float(...)` or `floatN(...)`.
+        const Type& type = this->type();
+        return type.columns() == 1 ? type : type.componentType();
+    }
+
     bool isCompileTimeConstant() const override {
         for (const std::unique_ptr<Expression>& arg: this->arguments()) {
             if (!arg->isCompileTimeConstant()) {
@@ -93,26 +104,53 @@ public:
         return true;
     }
 
-    bool compareConstant(const Context& context, const Expression& other) const override;
+    ComparisonResult compareConstant(const Expression& other) const override;
 
-    template <typename resultType>
-    resultType getVecComponent(int index) const;
+    template <typename ResultType>
+    ResultType getVecComponent(int index) const;
 
+    /**
+     * For a literal vector expression, return the float value of the n'th vector component. It is
+     * an error to call this method on an expression which is not a compile-time constant vector of
+     * floating-point type.
+     */
     SKSL_FLOAT getFVecComponent(int n) const override {
         return this->getVecComponent<SKSL_FLOAT>(n);
     }
 
     /**
      * For a literal vector expression, return the integer value of the n'th vector component. It is
-     * an error to call this method on an expression which is not a literal vector.
+     * an error to call this method on an expression which is not a compile-time constant vector of
+     * integer type.
      */
     SKSL_INT getIVecComponent(int n) const override {
         return this->getVecComponent<SKSL_INT>(n);
     }
 
+    /**
+     * For a literal vector expression, return the boolean value of the n'th vector component. It is
+     * an error to call this method on an expression which is not a compile-time constant vector of
+     * Boolean type.
+     */
+    bool getBVecComponent(int n) const override {
+        return this->getVecComponent<bool>(n);
+    }
+
     SKSL_FLOAT getMatComponent(int col, int row) const override;
 
+    SKSL_INT getConstantInt() const override;
+
+    SKSL_FLOAT getConstantFloat() const override;
+
+    bool getConstantBool() const override;
+
 private:
+    template <typename ResultType>
+    ResultType getConstantValue(const Expression& expr) const;
+
+    template <typename ResultType>
+    ResultType getInnerVecComponent(const Expression& expr, int position) const;
+
     ExpressionArray fArguments;
 
     using INHERITED = Expression;

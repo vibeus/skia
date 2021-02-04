@@ -16,8 +16,9 @@
 
 namespace SkSL {
 
-class  ExternalValue;
+class ExternalFunction;
 class FunctionDeclaration;
+class OutputStream;
 
 enum class ByteCodeInstruction : uint8_t {
     // B = bool, F = float, I = int, S = signed, U = unsigned
@@ -29,6 +30,7 @@ enum class ByteCodeInstruction : uint8_t {
     kACos,  // N
     kASin,  // N
     kATan,  // N
+    kATan2, // N
     kBranch,
     // Followed by a byte indicating the index of the function to call
     kCall,
@@ -63,6 +65,8 @@ enum class ByteCodeInstruction : uint8_t {
     kDivideU,       // N
     // Duplicates the top N stack values
     kDup,    // N
+    kExp,    // N
+    kExp2,   // N
     kFloor,  // N
     kFract,  // N
     kInverse2x2,
@@ -79,6 +83,8 @@ enum class ByteCodeInstruction : uint8_t {
     kLoadExtendedUniform,  // N
     // Loads "sk_FragCoord" [X, Y, Z, 1/W]
     kLoadFragCoord,
+    kLog,   // N
+    kLog2,  // N
     // Followed by four bytes: srcCols, srcRows, dstCols, dstRows. Consumes the src matrix from the
     // stack, and replaces it with the dst matrix. Per GLSL rules, there are no restrictions on
     // dimensions. Any overlapping values are copied, and any other values are filled in with the
@@ -93,6 +99,7 @@ enum class ByteCodeInstruction : uint8_t {
     // Masked selection: Stack is ... A1, A2, A3, B1, B2, B3, M1, M2, M3
     //                   Result:      M1 ? B1 : A1, M2 ? B2 : A2, M3 ? B3 : A3
     kMix,        // N
+    kMod,        // N
     kNegateF,    // N
     kNegateI,    // N
     kMultiplyF,  // N
@@ -103,7 +110,6 @@ enum class ByteCodeInstruction : uint8_t {
     kPow,        // N
     // Followed by a 32 bit value containing the value to push
     kPushImmediate,
-    kReadExternal,  // N, slot
     kRemainderF,    // N
     kRemainderS,    // N
     kRemainderU,    // N
@@ -111,6 +117,7 @@ enum class ByteCodeInstruction : uint8_t {
     kReserve,
     // Followed by a byte indicating the number of slots being returned
     kReturn,
+    kInvSqrt,  // N
     // kSample* are followed by a byte indicating the FP slot to sample, and produce (R, G, B, A)
     // Does "pass-through" sampling at the same coords as the parent
     kSample,
@@ -126,8 +133,10 @@ enum class ByteCodeInstruction : uint8_t {
     kShiftLeft,
     kShiftRightS,
     kShiftRightU,
+    kSign,  // N
     kSin,   // N
     kSqrt,  // N
+    kStep,  // N
     kStore,                // N, slot
     kStoreGlobal,          // N, slot
     // Indirect stores get the slot to store from the top of the stack
@@ -140,7 +149,6 @@ enum class ByteCodeInstruction : uint8_t {
     kSubtractF,  // N
     kSubtractI,  // N
     kTan,        // N
-    kWriteExternal,  // N, slot
     kXorB,       // N
 
     kMaskPush,
@@ -169,9 +177,9 @@ public:
     size_t         size() const { return fCode.size(); }
 
     /**
-     * Print bytecode disassembly to stdout.
+     * Print bytecode disassembly to 'out', or SkDebugf if not supplied.
      */
-    void disassemble() const;
+    void disassemble(OutputStream* out = nullptr) const;
 
 private:
     ByteCodeFunction(const FunctionDeclaration* declaration);
@@ -276,6 +284,11 @@ public:
      */
     bool canRun() const { return fChildFPCount == 0 && !fUsesFragCoord; }
 
+    /**
+     * Print bytecode disassembly to 'out', or SkDebugf if not supplied.
+     */
+    void disassemble(OutputStream* out = nullptr) const;
+
 private:
     ByteCode(const ByteCode&) = delete;
     ByteCode& operator=(const ByteCode&) = delete;
@@ -290,7 +303,7 @@ private:
     std::vector<Uniform> fUniforms;
 
     std::vector<std::unique_ptr<ByteCodeFunction>> fFunctions;
-    std::vector<const ExternalValue*> fExternalValues;
+    std::vector<const ExternalFunction*> fExternalFunctions;
 };
 
 }  // namespace SkSL

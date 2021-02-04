@@ -21,6 +21,7 @@
 #include "src/core/SkImageFilter_Base.h"
 #include "src/core/SkImagePriv.h"
 #include "src/core/SkMipmap.h"
+#include "src/core/SkMipmapBuilder.h"
 #include "src/core/SkNextID.h"
 #include "src/core/SkSpecialImage.h"
 #include "src/image/SkImage_Base.h"
@@ -67,7 +68,7 @@ bool SkImage::readPixels(const SkImageInfo& dstInfo, void* dstPixels,
 void SkImage::asyncRescaleAndReadPixels(const SkImageInfo& info,
                                         const SkIRect& srcRect,
                                         RescaleGamma rescaleGamma,
-                                        SkFilterQuality rescaleQuality,
+                                        RescaleMode rescaleMode,
                                         ReadPixelsCallback callback,
                                         ReadPixelsContext context) {
     if (!SkIRect::MakeWH(this->width(), this->height()).contains(srcRect) ||
@@ -76,7 +77,7 @@ void SkImage::asyncRescaleAndReadPixels(const SkImageInfo& info,
         return;
     }
     as_IB(this)->onAsyncRescaleAndReadPixels(
-            info, srcRect, rescaleGamma, rescaleQuality, callback, context);
+            info, srcRect, rescaleGamma, rescaleMode, callback, context);
 }
 
 void SkImage::asyncRescaleAndReadPixelsYUV420(SkYUVColorSpace yuvColorSpace,
@@ -84,7 +85,7 @@ void SkImage::asyncRescaleAndReadPixelsYUV420(SkYUVColorSpace yuvColorSpace,
                                               const SkIRect& srcRect,
                                               const SkISize& dstSize,
                                               RescaleGamma rescaleGamma,
-                                              SkFilterQuality rescaleQuality,
+                                              RescaleMode rescaleMode,
                                               ReadPixelsCallback callback,
                                               ReadPixelsContext context) {
     if (!SkIRect::MakeWH(this->width(), this->height()).contains(srcRect) || dstSize.isZero() ||
@@ -97,12 +98,13 @@ void SkImage::asyncRescaleAndReadPixelsYUV420(SkYUVColorSpace yuvColorSpace,
                                                    srcRect,
                                                    dstSize,
                                                    rescaleGamma,
-                                                   rescaleQuality,
+                                                   rescaleMode,
                                                    callback,
                                                    context);
 }
 
-bool SkImage::scalePixels(const SkPixmap& dst, SkFilterQuality quality, CachingHint chint) const {
+bool SkImage::scalePixels(const SkPixmap& dst, const SkSamplingOptions& sampling,
+                          CachingHint chint) const {
     // Context TODO: Elevate GrDirectContext requirement to public API.
     auto dContext = as_IB(this)->directContext();
     if (this->width() == dst.width() && this->height() == dst.height()) {
@@ -119,7 +121,7 @@ bool SkImage::scalePixels(const SkPixmap& dst, SkFilterQuality quality, CachingH
         //       is (currently) only being applied to the getROPixels. If we get a request to
         //       also attempt to cache the final (scaled) result, we would add that logic here.
         //
-        return bm.peekPixels(&pmap) && pmap.scalePixels(dst, quality);
+        return bm.peekPixels(&pmap) && pmap.scalePixels(dst, sampling);
     }
     return false;
 }
@@ -134,23 +136,28 @@ SkColorSpace* SkImage::colorSpace() const { return fInfo.colorSpace(); }
 
 sk_sp<SkColorSpace> SkImage::refColorSpace() const { return fInfo.refColorSpace(); }
 
+#ifdef SK_SUPPORT_LEGACY_IMPLICIT_FILTERQUALITY
 sk_sp<SkShader> SkImage::makeShader(SkTileMode tmx, SkTileMode tmy,
                                     const SkMatrix* localMatrix) const {
-    return SkImageShader::Make(sk_ref_sp(const_cast<SkImage*>(this)), tmx, tmy, localMatrix,
-                               SkImageShader::kInheritFromPaint);
+    const SkSamplingOptions* inherit_from_paint = nullptr;
+    return SkImageShader::Make(sk_ref_sp(const_cast<SkImage*>(this)), tmx, tmy, inherit_from_paint,
+                               localMatrix);
+}
+#endif
+
+sk_sp<SkShader> SkImage_makeShaderImplicitFilterQuality(const SkImage* image,
+                                                        SkTileMode tmx, SkTileMode tmy,
+                                                        const SkMatrix* localMatrix) {
+    const SkSamplingOptions* inherit_from_paint = nullptr;
+    return SkImageShader::Make(sk_ref_sp(const_cast<SkImage*>(image)), tmx, tmy, inherit_from_paint,
+                               localMatrix);
 }
 
 sk_sp<SkShader> SkImage::makeShader(SkTileMode tmx, SkTileMode tmy,
-                                    const SkSamplingOptions& options,
+                                    const SkSamplingOptions& sampling,
                                     const SkMatrix* localMatrix) const {
     return SkImageShader::Make(sk_ref_sp(const_cast<SkImage*>(this)), tmx, tmy,
-                               options, localMatrix);
-}
-
-sk_sp<SkShader> SkImage::makeShader(SkTileMode tmx, SkTileMode tmy,
-                                    const SkMatrix* localMatrix, SkFilterQuality filtering) const {
-    return SkImageShader::Make(sk_ref_sp(const_cast<SkImage*>(this)), tmx, tmy, localMatrix,
-                               SkImageShader::FilterEnum(filtering));
+                               &sampling, localMatrix);
 }
 
 sk_sp<SkData> SkImage::encodeToData(SkEncodedImageFormat type, int quality) const {
@@ -273,7 +280,7 @@ SkImage_Base::~SkImage_Base() {
 void SkImage_Base::onAsyncRescaleAndReadPixels(const SkImageInfo& info,
                                                const SkIRect& origSrcRect,
                                                RescaleGamma rescaleGamma,
-                                               SkFilterQuality rescaleQuality,
+                                               RescaleMode rescaleMode,
                                                ReadPixelsCallback callback,
                                                ReadPixelsContext context) {
     SkBitmap src;
@@ -293,8 +300,7 @@ void SkImage_Base::onAsyncRescaleAndReadPixels(const SkImageInfo& info,
         }
         srcRect = SkIRect::MakeSize(src.dimensions());
     }
-    return SkRescaleAndReadPixels(
-            src, info, srcRect, rescaleGamma, rescaleQuality, callback, context);
+    return SkRescaleAndReadPixels(src, info, srcRect, rescaleGamma, rescaleMode, callback, context);
 }
 
 void SkImage_Base::onAsyncRescaleAndReadPixelsYUV420(SkYUVColorSpace,
@@ -302,7 +308,7 @@ void SkImage_Base::onAsyncRescaleAndReadPixelsYUV420(SkYUVColorSpace,
                                                      const SkIRect& srcRect,
                                                      const SkISize& dstSize,
                                                      RescaleGamma,
-                                                     SkFilterQuality,
+                                                     RescaleMode,
                                                      ReadPixelsCallback callback,
                                                      ReadPixelsContext context) {
     // TODO: Call non-YUV asyncRescaleAndReadPixels and then make our callback convert to YUV and
@@ -575,12 +581,6 @@ sk_sp<SkImage> SkImage::makeTextureImage(GrDirectContext*, GrMipmapped, SkBudget
     return nullptr;
 }
 
-sk_sp<SkImage> SkImage::MakeFromNV12TexturesCopyWithExternalBackend(
-       GrRecordingContext*, SkYUVColorSpace, const GrBackendTexture[2], GrSurfaceOrigin,
-       const GrBackendTexture&, sk_sp<SkColorSpace>, TextureReleaseProc, ReleaseContext) {
-    return nullptr;
-}
-
 #endif
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////
@@ -638,4 +638,23 @@ sk_sp<SkImage> SkImage::withDefaultMipmaps() const {
 
 sk_sp<SkImage> SkMipmapBuilder::attachTo(const SkImage* src) {
     return src->withMipmaps(fMM);
+}
+
+SkSamplingOptions::SkSamplingOptions(SkFilterQuality fq, MediumBehavior behavior) {
+    switch (fq) {
+        case SkFilterQuality::kHigh_SkFilterQuality:
+            *this = SkSamplingOptions(SkCubicResampler{1/3.0f, 1/3.0f});
+            break;
+        case SkFilterQuality::kMedium_SkFilterQuality:
+            *this = SkSamplingOptions(SkFilterMode::kLinear,
+                                      behavior == kMedium_asMipmapNearest ? SkMipmapMode::kNearest
+                                                                          : SkMipmapMode::kLinear);
+            break;
+        case SkFilterQuality::kLow_SkFilterQuality:
+            *this = SkSamplingOptions(SkFilterMode::kLinear, SkMipmapMode::kNone);
+            break;
+        case SkFilterQuality::kNone_SkFilterQuality:
+            *this = SkSamplingOptions(SkFilterMode::kNearest, SkMipmapMode::kNone);
+            break;
+    }
 }

@@ -23,7 +23,8 @@
 #include "src/sksl/ir/SkSLSwitchStatement.h"
 #include "src/sksl/ir/SkSLSwizzle.h"
 #include "src/sksl/ir/SkSLTernaryExpression.h"
-#include "src/sksl/ir/SkSLWhileStatement.h"
+
+#include <tuple>
 
 namespace SkSL {
 
@@ -78,12 +79,13 @@ void CFG::dump() const {
 void BasicBlock::dump() const {
     printf("Before: [");
     const char* separator = "";
-    fBefore.foreach([&](const Variable* var, std::unique_ptr<Expression>* expr) {
-        printf("%s%s = %s", separator,
-                            var->description().c_str(),
-                            expr ? (*expr)->description().c_str() : "<undefined>");
+    for (const auto& [var, expr] : fBefore) {
+        printf("%s%s = %s",
+               separator,
+               var->description().c_str(),
+               expr ? *expr ? (*expr)->description().c_str() : "NULL" : "<undefined>");
         separator = ", ";
-    });
+    }
     printf("]\nIs Reachable: [%s]\n", fIsReachable ? "yes" : "no");
     for (size_t j = 0; j < fNodes.size(); j++) {
         const BasicBlock::Node& n = fNodes[j];
@@ -101,13 +103,16 @@ void BasicBlock::dump() const {
 
 bool BasicBlock::tryRemoveExpressionBefore(std::vector<BasicBlock::Node>::iterator* iter,
                                            Expression* e) {
-    if (e->kind() == Expression::Kind::kTernary) {
+    if (e->is<TernaryExpression>()) {
         return false;
     }
     bool result;
     if ((*iter)->isExpression()) {
         SkASSERT((*iter)->expression()->get() != e);
+        // Remember the expression that we started on.
         Expression* old = (*iter)->expression()->get();
+        // Back up `iter` until we find the expression that we want to remove. (If we don't find
+        // that expression at all, fail and rescan.)
         do {
             if ((*iter) == fNodes.begin()) {
                 return false;
@@ -115,14 +120,19 @@ bool BasicBlock::tryRemoveExpressionBefore(std::vector<BasicBlock::Node>::iterat
             --(*iter);
         } while (!(*iter)->isExpression() || (*iter)->expression()->get() != e);
 
+        // `iter` now points to our expression that needs removal. Erase it.
         result = this->tryRemoveExpression(iter);
 
+        // Move `iter` forward again until we find the expression we started on.
         while (!(*iter)->isExpression() || (*iter)->expression()->get() != old) {
             SkASSERT(*iter != fNodes.end());
             ++(*iter);
         }
     } else {
+        // Remember the statement that we started on.
         Statement* old = (*iter)->statement()->get();
+        // Back up `iter` until we find the expression that we want to remove. (If we don't find
+        // that expression at all, fail and rescan.)
         do {
             if ((*iter) == fNodes.begin()) {
                 return false;
@@ -130,8 +140,10 @@ bool BasicBlock::tryRemoveExpressionBefore(std::vector<BasicBlock::Node>::iterat
             --(*iter);
         } while (!(*iter)->isExpression() || (*iter)->expression()->get() != e);
 
+        // `iter` now points to our expression that needs removal. Erase it.
         result = this->tryRemoveExpression(iter);
 
+        // Move `iter` forward again until we find the statement we started on.
         while (!(*iter)->isStatement() || (*iter)->statement()->get() != old) {
             SkASSERT(*iter != fNodes.end());
             ++(*iter);
@@ -143,7 +155,6 @@ bool BasicBlock::tryRemoveExpressionBefore(std::vector<BasicBlock::Node>::iterat
 bool BasicBlock::tryRemoveLValueBefore(std::vector<BasicBlock::Node>::iterator* iter,
                                        Expression* lvalue) {
     switch (lvalue->kind()) {
-        case Expression::Kind::kExternalValue: // fall through
         case Expression::Kind::kVariableReference:
             return true;
         case Expression::Kind::kSwizzle:
@@ -421,10 +432,8 @@ void CFGGenerator::addExpression(CFG& cfg, std::unique_ptr<Expression>* e, bool 
             cfg.currentBlock().fNodes.push_back(BasicBlock::MakeExpression(e, constantPropagate));
             break;
         case Expression::Kind::kBoolLiteral:   // fall through
-        case Expression::Kind::kExternalValue: // fall through
         case Expression::Kind::kFloatLiteral:  // fall through
         case Expression::Kind::kIntLiteral:    // fall through
-        case Expression::Kind::kNullLiteral:   // fall through
         case Expression::Kind::kSetting:       // fall through
         case Expression::Kind::kVariableReference:
             cfg.currentBlock().fNodes.push_back(BasicBlock::MakeExpression(e, constantPropagate));
@@ -444,6 +453,7 @@ void CFGGenerator::addExpression(CFG& cfg, std::unique_ptr<Expression>* e, bool 
             cfg.fCurrent = next;
             break;
         }
+        case Expression::Kind::kExternalFunctionReference:     // fall through
         case Expression::Kind::kFunctionReference: // fall through
         case Expression::Kind::kTypeReference:     // fall through
         case Expression::Kind::kDefined:
@@ -467,7 +477,6 @@ void CFGGenerator::addLValue(CFG& cfg, std::unique_ptr<Expression>* e) {
         case Expression::Kind::kSwizzle:
             this->addLValue(cfg, &e->get()->as<Swizzle>().base());
             break;
-        case Expression::Kind::kExternalValue: // fall through
         case Expression::Kind::kVariableReference:
             break;
         case Expression::Kind::kTernary: {
@@ -485,10 +494,6 @@ void CFGGenerator::addLValue(CFG& cfg, std::unique_ptr<Expression>* e) {
             SkASSERT(false);
             break;
     }
-}
-
-static bool is_true(Expression& expr) {
-    return expr.is<BoolLiteral>() && expr.as<BoolLiteral>().value();
 }
 
 void CFGGenerator::addStatement(CFG& cfg, std::unique_ptr<Statement>* s) {
@@ -556,25 +561,6 @@ void CFGGenerator::addStatement(CFG& cfg, std::unique_ptr<Statement>* s) {
             cfg.addExit(cfg.fCurrent, fLoopContinues.top());
             cfg.fCurrent = cfg.newIsolatedBlock();
             break;
-        case Statement::Kind::kWhile: {
-            WhileStatement& w = (*s)->as<WhileStatement>();
-            BlockId loopStart = cfg.newBlock();
-            fLoopContinues.push(loopStart);
-            BlockId loopExit = cfg.newIsolatedBlock();
-            fLoopExits.push(loopExit);
-            this->addExpression(cfg, &w.test(), /*constantPropagate=*/true);
-            BlockId test = cfg.fCurrent;
-            if (!is_true(*w.test())) {
-                cfg.addExit(test, loopExit);
-            }
-            cfg.newBlock();
-            this->addStatement(cfg, &w.statement());
-            cfg.addExit(cfg.fCurrent, loopStart);
-            fLoopContinues.pop();
-            fLoopExits.pop();
-            cfg.fCurrent = loopExit;
-            break;
-        }
         case Statement::Kind::kDo: {
             DoStatement& d = (*s)->as<DoStatement>();
             BlockId loopStart = cfg.newBlock();
@@ -617,6 +603,11 @@ void CFGGenerator::addStatement(CFG& cfg, std::unique_ptr<Statement>* s) {
             if (f.next()) {
                 this->addExpression(cfg, &f.next(), /*constantPropagate=*/true);
             }
+            // The increment expression of a for loop is allowed to be unreachable, because GLSL
+            // ES2 requires us to provide an increment expression for our for-loops whether or not
+            // it can be reached. Reporting it as "unreachable" isn't helpful if the alternative
+            // is an invalid program.
+            cfg.currentBlock().fAllowUnreachable = true;
             cfg.addExit(cfg.fCurrent, loopStart);
             cfg.addExit(cfg.fCurrent, loopExit);
             fLoopContinues.pop();
@@ -668,6 +659,8 @@ CFG CFGGenerator::getCFG(FunctionDefinition& f) {
     CFG result;
     result.fStart = result.newBlock();
     result.fCurrent = result.fStart;
+    // The starting block is "reached" implicitly, even if nothing points to it.
+    result.currentBlock().fAllowUnreachable = true;
     this->addStatement(result, &f.body());
     result.newBlock();
     result.fExit = result.fCurrent;

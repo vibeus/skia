@@ -20,9 +20,6 @@ public:
     DEFINE_OP_CLASS_ID
 
 private:
-    // The provided matrix must be a similarity matrix for the time being. This is so we can
-    // bootstrap this Op on top of GrStrokeGeometry with minimal modifications.
-    //
     // Patches can overlap, so until a stencil technique is implemented, the provided paint must be
     // a constant blended color.
     GrStrokeTessellateOp(GrAAType aaType, const SkMatrix& viewMatrix, const SkStrokeRec& stroke,
@@ -30,8 +27,9 @@ private:
             : GrStrokeOp(ClassID(), aaType, viewMatrix, stroke, path, std::move(paint)) {
     }
 
-    void onPrePrepare(GrRecordingContext*, const GrSurfaceProxyView*, GrAppliedClip*,
-                      const GrXferProcessor::DstProxyView&, GrXferBarrierFlags) override;
+    void onPrePrepare(GrRecordingContext*, const GrSurfaceProxyView&, GrAppliedClip*,
+                      const GrXferProcessor::DstProxyView&, GrXferBarrierFlags,
+                      GrLoadOp colorLoadOp) override;
 
     enum class JoinType {
         kFromStroke,  // The shader will use the join type defined in our fStrokeRec.
@@ -85,6 +83,10 @@ private:
 
     // The maximum number of tessellation segments the hardware can emit for a single patch.
     int fMaxTessellationSegments;
+
+    // Tolerances the tessellation shader will use for determining how much subdivision to do. We
+    // need to ensure every curve we emit doesn't require more than fMaxTessellationSegments.
+    GrStrokeTessellateShader::Tolerances fTolerances;
 
     // These values contain worst-case numbers of parametric segments, raised to the 4th power, that
     // our hardware can support for the current stroke radius. They assume curve rotations of 180

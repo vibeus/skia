@@ -212,22 +212,22 @@ class CubicResamplerDemo : public Sample {
 
             SkMatrix lm = SkMatrix::Translate(r.x(), r.y())
                         * SkMatrix::Scale(10, 10);
-            paint.setShader(fImage->makeShader(SkTileMode::kClamp, SkTileMode::kClamp, &lm));
+            paint.setShader(fImage->makeShader(SkSamplingOptions(), lm));
+            canvas->drawRect(r, paint);
+
+            r.offset(r.width() + 10, 0);
+            lm.postTranslate(r.width() + 10, 0);
+
+            paint.setShader(fImage->makeShader(SkSamplingOptions{ SkFilterMode::kLinear,
+                                                                  SkMipmapMode::kNone },
+                                               lm));
             canvas->drawRect(r, paint);
 
             r.offset(r.width() + 10, 0);
             lm.postTranslate(r.width() + 10, 0);
 
             paint.setShader(fImage->makeShader(SkTileMode::kClamp, SkTileMode::kClamp,
-                                               SkFilterOptions{ SkSamplingMode::kLinear,
-                                                                SkMipmapMode::kNone },
-                                               &lm));
-            canvas->drawRect(r, paint);
-
-            r.offset(r.width() + 10, 0);
-            lm.postTranslate(r.width() + 10, 0);
-
-            paint.setShader(fImage->makeShader(SkTileMode::kClamp, SkTileMode::kClamp, cubic, &lm));
+                                               SkSamplingOptions(cubic), &lm));
             canvas->drawRect(r, paint);
         }
     };

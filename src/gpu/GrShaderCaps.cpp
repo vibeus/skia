@@ -59,6 +59,7 @@ GrShaderCaps::GrShaderCaps(const GrContextOptions& options) {
     fBuiltinFMASupport = false;
     fBuiltinDeterminantSupport = false;
     fCanUseDoLoops = true;
+    fUseNodePools = true;
 
     fVersionDeclString = nullptr;
     fShaderDerivativeExtensionString = nullptr;
@@ -141,6 +142,7 @@ void GrShaderCaps::dumpJSON(SkJSONWriter* writer) const {
     writer->appendBool("Builtin fma() support", fBuiltinFMASupport);
     writer->appendBool("Builtin determinant() support", fBuiltinDeterminantSupport);
     writer->appendBool("Can use do-while loops", fCanUseDoLoops);
+    writer->appendBool("Use node pools", fUseNodePools);
 
     writer->appendS32("Max FS Samplers", fMaxFragmentSamplers);
     writer->appendS32("Max Tessellation Segments", fMaxTessellationSegments);
@@ -189,5 +191,8 @@ void GrShaderCaps::applyOptionsOverrides(const GrContextOptions& options) {
         fMaxTessellationSegments = std::min(options.fMaxTessellationSegmentsOverride,
                                             fMaxTessellationSegments);
     }
+#else
+    // Tessellation shaders are still very experimental. Always disable them outside of test builds.
+    fMaxTessellationSegments = 0;
 #endif
 }

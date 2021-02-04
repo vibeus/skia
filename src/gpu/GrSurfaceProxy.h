@@ -318,6 +318,7 @@ public:
 #if GR_TEST_UTILS
     int32_t testingOnly_getBackingRefCnt() const;
     GrInternalSurfaceFlags testingOnly_getFlags() const;
+    SkString dump() const;
 #endif
 
     SkDEBUGCODE(void validate(GrContext_Base*) const;)
@@ -325,6 +326,8 @@ public:
     // Provides access to functions that aren't part of the public API.
     inline GrSurfaceProxyPriv priv();
     inline const GrSurfaceProxyPriv priv() const;  // NOLINT(readability-const-return-type)
+
+    bool isDDLTarget() const { return fIsDDLTarget; }
 
     GrProtected isProtected() const { return fIsProtected; }
 
@@ -423,6 +426,7 @@ private:
     virtual LazySurfaceDesc callbackDesc() const = 0;
 
     bool                   fIgnoredByResourceAllocator = false;
+    bool                   fIsDDLTarget = false;
     GrProtected            fIsProtected;
 
     // This entry is lazily evaluated so, when the proxy wraps a resource, the resource

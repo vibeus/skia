@@ -41,11 +41,8 @@
 #include "src/sksl/ir/SkSLTernaryExpression.h"
 #include "src/sksl/ir/SkSLVarDeclarations.h"
 #include "src/sksl/ir/SkSLVariableReference.h"
-#include "src/sksl/ir/SkSLWhileStatement.h"
 
 namespace SkSL {
-
-#define kLast_Capability SpvCapabilityMultiViewport
 
 /**
  * Converts a Program into GLSL code.
@@ -100,6 +97,8 @@ protected:
     virtual bool usesPrecisionModifiers() const;
 
     virtual String getTypeName(const Type& type);
+
+    bool writeStructDefinition(const Type& type);
 
     void writeType(const Type& type);
 
@@ -186,8 +185,6 @@ protected:
     virtual void writeIfStatement(const IfStatement& stmt);
 
     void writeForStatement(const ForStatement& f);
-
-    void writeWhileStatement(const WhileStatement& w);
 
     void writeDoStatement(const DoStatement& d);
 

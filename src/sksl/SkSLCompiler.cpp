@@ -60,8 +60,8 @@
 #include "src/sksl/generated/sksl_geom.dehydrated.sksl"
 #include "src/sksl/generated/sksl_gpu.dehydrated.sksl"
 #include "src/sksl/generated/sksl_interp.dehydrated.sksl"
-#include "src/sksl/generated/sksl_pipeline.dehydrated.sksl"
 #include "src/sksl/generated/sksl_public.dehydrated.sksl"
+#include "src/sksl/generated/sksl_runtime.dehydrated.sksl"
 #include "src/sksl/generated/sksl_vert.dehydrated.sksl"
 
 #define MODULE_DATA(name) MakeModuleData(SKSL_INCLUDE_sksl_##name,\
@@ -85,15 +85,17 @@ public:
 };
 
 Compiler::Compiler(const ShaderCapsClass* caps, Flags flags)
-: fCaps(caps)
-, fFlags(flags)
-, fContext(std::make_shared<Context>())
-, fErrorCount(0) {
+        : fContext(std::make_shared<Context>(/*errors=*/*this))
+        , fCaps(caps)
+        , fInliner(fContext.get())
+        , fFlags(flags)
+        , fErrorCount(0) {
+    SkASSERT(fCaps);
     fRootSymbolTable = std::make_shared<SymbolTable>(this, /*builtin=*/true);
     fPrivateSymbolTable = std::make_shared<SymbolTable>(fRootSymbolTable, /*builtin=*/true);
-    fIRGenerator = std::make_unique<IRGenerator>(fContext.get(), &fInliner, *this);
+    fIRGenerator = std::make_unique<IRGenerator>(fContext.get(), fCaps);
 
-#define TYPE(t) fContext->f##t##_Type.get()
+#define TYPE(t) fContext->fTypes.f ## t .get()
 
     const SkSL::Symbol* rootTypes[] = {
         TYPE(Void),
@@ -101,55 +103,47 @@ Compiler::Compiler(const ShaderCapsClass* caps, Flags flags)
         TYPE( Float), TYPE( Float2), TYPE( Float3), TYPE( Float4),
         TYPE(  Half), TYPE(  Half2), TYPE(  Half3), TYPE(  Half4),
         TYPE(   Int), TYPE(   Int2), TYPE(   Int3), TYPE(   Int4),
-        TYPE(  UInt), TYPE(  UInt2), TYPE(  UInt3), TYPE(  UInt4),
-        TYPE( Short), TYPE( Short2), TYPE( Short3), TYPE( Short4),
-        TYPE(UShort), TYPE(UShort2), TYPE(UShort3), TYPE(UShort4),
-        TYPE(  Byte), TYPE(  Byte2), TYPE(  Byte3), TYPE(  Byte4),
-        TYPE( UByte), TYPE( UByte2), TYPE( UByte3), TYPE( UByte4),
         TYPE(  Bool), TYPE(  Bool2), TYPE(  Bool3), TYPE(  Bool4),
 
-        TYPE(Float2x2), TYPE(Float2x3), TYPE(Float2x4),
-        TYPE(Float3x2), TYPE(Float3x3), TYPE(Float3x4),
-        TYPE(Float4x2), TYPE(Float4x3), TYPE(Float4x4),
+        TYPE(Float2x2), TYPE(Float3x3), TYPE(Float4x4),
+        TYPE( Half2x2), TYPE( Half3x3), TYPE(Half4x4),
 
-        TYPE(Half2x2),  TYPE(Half2x3),  TYPE(Half2x4),
-        TYPE(Half3x2),  TYPE(Half3x3),  TYPE(Half3x4),
-        TYPE(Half4x2),  TYPE(Half4x3),  TYPE(Half4x4),
+        TYPE(SquareMat), TYPE(SquareHMat),
 
-        TYPE(GenType), TYPE(GenHType), TYPE(GenIType), TYPE(GenUType), TYPE(GenBType),
-        TYPE(Mat), TYPE(Vec),
-        TYPE(GVec), TYPE(GVec2), TYPE(GVec3), TYPE(GVec4),
-        TYPE(HVec), TYPE(IVec), TYPE(UVec), TYPE(SVec), TYPE(USVec),
-        TYPE(ByteVec), TYPE(UByteVec), TYPE(BVec),
+        TYPE(GenType), TYPE(GenHType), TYPE(GenIType), TYPE(GenBType),
+        TYPE(Vec),     TYPE(HVec),     TYPE(IVec),     TYPE(BVec),
 
         TYPE(FragmentProcessor),
     };
 
     const SkSL::Symbol* privateTypes[] = {
+        TYPE(  UInt), TYPE(  UInt2), TYPE(  UInt3), TYPE(  UInt4),
+        TYPE( Short), TYPE( Short2), TYPE( Short3), TYPE( Short4),
+        TYPE(UShort), TYPE(UShort2), TYPE(UShort3), TYPE(UShort4),
+        TYPE(  Byte), TYPE(  Byte2), TYPE(  Byte3), TYPE(  Byte4),
+        TYPE( UByte), TYPE( UByte2), TYPE( UByte3), TYPE( UByte4),
+
+        TYPE(GenUType), TYPE(UVec),
+        TYPE(SVec), TYPE(USVec), TYPE(ByteVec), TYPE(UByteVec),
+
+        TYPE(Float2x3), TYPE(Float2x4),
+        TYPE(Float3x2), TYPE(Float3x4),
+        TYPE(Float4x2), TYPE(Float4x3),
+
+        TYPE(Half2x3),  TYPE(Half2x4),
+        TYPE(Half3x2),  TYPE(Half3x4),
+        TYPE(Half4x2),  TYPE(Half4x3),
+
+        TYPE(Mat), TYPE(HMat),
+
         TYPE(Sampler1D), TYPE(Sampler2D), TYPE(Sampler3D),
         TYPE(SamplerExternalOES),
-        TYPE(SamplerCube),
         TYPE(Sampler2DRect),
-        TYPE(Sampler1DArray), TYPE(Sampler2DArray), TYPE(SamplerCubeArray),
-        TYPE(SamplerBuffer),
-        TYPE(Sampler2DMS), TYPE(Sampler2DMSArray),
 
         TYPE(ISampler2D),
         TYPE(Image2D), TYPE(IImage2D),
         TYPE(SubpassInput), TYPE(SubpassInputMS),
 
-        TYPE(GSampler1D), TYPE(GSampler2D), TYPE(GSampler3D),
-        TYPE(GSamplerCube),
-        TYPE(GSampler2DRect),
-        TYPE(GSampler1DArray), TYPE(GSampler2DArray), TYPE(GSamplerCubeArray),
-        TYPE(GSamplerBuffer),
-        TYPE(GSampler2DMS), TYPE(GSampler2DMSArray),
-
-        TYPE(Sampler1DShadow), TYPE(Sampler2DShadow), TYPE(SamplerCubeShadow),
-        TYPE(Sampler2DRectShadow),
-        TYPE(Sampler1DArrayShadow), TYPE(Sampler2DArrayShadow), TYPE(SamplerCubeArrayShadow),
-
-        TYPE(GSampler2DArrayShadow), TYPE(GSamplerCubeArrayShadow),
         TYPE(Sampler),
         TYPE(Texture2D),
     };
@@ -167,33 +161,53 @@ Compiler::Compiler(const ShaderCapsClass* caps, Flags flags)
     // treat it as builtin (ie, no need to clone it into the Program).
     fPrivateSymbolTable->add(
             std::make_unique<Variable>(/*offset=*/-1,
-                                       fIRGenerator->fModifiers->handle(Modifiers()),
+                                       fIRGenerator->fModifiers->addToPool(Modifiers()),
                                        "sk_Caps",
-                                       fContext->fSkCaps_Type.get(),
+                                       fContext->fTypes.fSkCaps.get(),
                                        /*builtin=*/false,
                                        Variable::Storage::kGlobal));
 
     fRootModule = {fRootSymbolTable, /*fIntrinsics=*/nullptr};
     fPrivateModule = {fPrivateSymbolTable, /*fIntrinsics=*/nullptr};
-
-    fGPUModule = this->parseModule(Program::kFragment_Kind, MODULE_DATA(gpu), fPrivateModule);
-    fVertexModule = this->parseModule(Program::kVertex_Kind, MODULE_DATA(vert), fGPUModule);
-    fFragmentModule = this->parseModule(Program::kFragment_Kind, MODULE_DATA(frag), fGPUModule);
 }
 
 Compiler::~Compiler() {}
 
+const ParsedModule& Compiler::loadGPUModule() {
+    if (!fGPUModule.fSymbols) {
+        fGPUModule = this->parseModule(Program::kFragment_Kind, MODULE_DATA(gpu), fPrivateModule);
+    }
+    return fGPUModule;
+}
+
+const ParsedModule& Compiler::loadFragmentModule() {
+    if (!fFragmentModule.fSymbols) {
+        fFragmentModule = this->parseModule(Program::kFragment_Kind, MODULE_DATA(frag),
+                                            this->loadGPUModule());
+    }
+    return fFragmentModule;
+}
+
+const ParsedModule& Compiler::loadVertexModule() {
+    if (!fVertexModule.fSymbols) {
+        fVertexModule = this->parseModule(Program::kVertex_Kind, MODULE_DATA(vert),
+                                          this->loadGPUModule());
+    }
+    return fVertexModule;
+}
+
 const ParsedModule& Compiler::loadGeometryModule() {
     if (!fGeometryModule.fSymbols) {
-        fGeometryModule = this->parseModule(Program::kGeometry_Kind, MODULE_DATA(geom), fGPUModule);
+        fGeometryModule = this->parseModule(Program::kGeometry_Kind, MODULE_DATA(geom),
+                                            this->loadGPUModule());
     }
     return fGeometryModule;
 }
 
 const ParsedModule& Compiler::loadFPModule() {
     if (!fFPModule.fSymbols) {
-        fFPModule =
-                this->parseModule(Program::kFragmentProcessor_Kind, MODULE_DATA(fp), fGPUModule);
+        fFPModule = this->parseModule(Program::kFragmentProcessor_Kind, MODULE_DATA(fp),
+                                      this->loadGPUModule());
     }
     return fFPModule;
 }
@@ -205,39 +219,39 @@ const ParsedModule& Compiler::loadPublicModule() {
     return fPublicModule;
 }
 
-const ParsedModule& Compiler::loadPipelineModule() {
-    if (!fPipelineModule.fSymbols) {
-        fPipelineModule = this->parseModule(Program::kPipelineStage_Kind, MODULE_DATA(pipeline),
-                                            this->loadPublicModule());
+const ParsedModule& Compiler::loadRuntimeEffectModule() {
+    if (!fRuntimeEffectModule.fSymbols) {
+        fRuntimeEffectModule = this->parseModule(Program::kRuntimeEffect_Kind, MODULE_DATA(runtime),
+                                                 this->loadPublicModule());
 
-        // Add some aliases to the pipeline module so that it's friendlier, and more like GLSL
-        fPipelineModule.fSymbols->addAlias("shader", fContext->fFragmentProcessor_Type.get());
+        // Add some aliases to the runtime effect module so that it's friendlier, and more like GLSL
+        fRuntimeEffectModule.fSymbols->addAlias("shader", fContext->fTypes.fFragmentProcessor.get());
 
-        fPipelineModule.fSymbols->addAlias("vec2", fContext->fFloat2_Type.get());
-        fPipelineModule.fSymbols->addAlias("vec3", fContext->fFloat3_Type.get());
-        fPipelineModule.fSymbols->addAlias("vec4", fContext->fFloat4_Type.get());
+        fRuntimeEffectModule.fSymbols->addAlias("vec2", fContext->fTypes.fFloat2.get());
+        fRuntimeEffectModule.fSymbols->addAlias("vec3", fContext->fTypes.fFloat3.get());
+        fRuntimeEffectModule.fSymbols->addAlias("vec4", fContext->fTypes.fFloat4.get());
 
-        fPipelineModule.fSymbols->addAlias("bvec2", fContext->fBool2_Type.get());
-        fPipelineModule.fSymbols->addAlias("bvec3", fContext->fBool3_Type.get());
-        fPipelineModule.fSymbols->addAlias("bvec4", fContext->fBool4_Type.get());
+        fRuntimeEffectModule.fSymbols->addAlias("bvec2", fContext->fTypes.fBool2.get());
+        fRuntimeEffectModule.fSymbols->addAlias("bvec3", fContext->fTypes.fBool3.get());
+        fRuntimeEffectModule.fSymbols->addAlias("bvec4", fContext->fTypes.fBool4.get());
 
-        fPipelineModule.fSymbols->addAlias("mat2", fContext->fFloat2x2_Type.get());
-        fPipelineModule.fSymbols->addAlias("mat3", fContext->fFloat3x3_Type.get());
-        fPipelineModule.fSymbols->addAlias("mat4", fContext->fFloat4x4_Type.get());
+        fRuntimeEffectModule.fSymbols->addAlias("mat2", fContext->fTypes.fFloat2x2.get());
+        fRuntimeEffectModule.fSymbols->addAlias("mat3", fContext->fTypes.fFloat3x3.get());
+        fRuntimeEffectModule.fSymbols->addAlias("mat4", fContext->fTypes.fFloat4x4.get());
 
-        fPipelineModule.fSymbols->addAlias("mat2x2", fContext->fFloat2x2_Type.get());
-        fPipelineModule.fSymbols->addAlias("mat2x3", fContext->fFloat2x3_Type.get());
-        fPipelineModule.fSymbols->addAlias("mat2x4", fContext->fFloat2x4_Type.get());
+        fRuntimeEffectModule.fSymbols->addAlias("mat2x2", fContext->fTypes.fFloat2x2.get());
+        fRuntimeEffectModule.fSymbols->addAlias("mat2x3", fContext->fTypes.fFloat2x3.get());
+        fRuntimeEffectModule.fSymbols->addAlias("mat2x4", fContext->fTypes.fFloat2x4.get());
 
-        fPipelineModule.fSymbols->addAlias("mat3x2", fContext->fFloat3x2_Type.get());
-        fPipelineModule.fSymbols->addAlias("mat3x3", fContext->fFloat3x3_Type.get());
-        fPipelineModule.fSymbols->addAlias("mat3x4", fContext->fFloat3x4_Type.get());
+        fRuntimeEffectModule.fSymbols->addAlias("mat3x2", fContext->fTypes.fFloat3x2.get());
+        fRuntimeEffectModule.fSymbols->addAlias("mat3x3", fContext->fTypes.fFloat3x3.get());
+        fRuntimeEffectModule.fSymbols->addAlias("mat3x4", fContext->fTypes.fFloat3x4.get());
 
-        fPipelineModule.fSymbols->addAlias("mat4x2", fContext->fFloat4x2_Type.get());
-        fPipelineModule.fSymbols->addAlias("mat4x3", fContext->fFloat4x3_Type.get());
-        fPipelineModule.fSymbols->addAlias("mat4x4", fContext->fFloat4x4_Type.get());
+        fRuntimeEffectModule.fSymbols->addAlias("mat4x2", fContext->fTypes.fFloat4x2.get());
+        fRuntimeEffectModule.fSymbols->addAlias("mat4x3", fContext->fTypes.fFloat4x3.get());
+        fRuntimeEffectModule.fSymbols->addAlias("mat4x4", fContext->fTypes.fFloat4x4.get());
     }
-    return fPipelineModule;
+    return fRuntimeEffectModule;
 }
 
 const ParsedModule& Compiler::loadInterpreterModule() {
@@ -250,12 +264,12 @@ const ParsedModule& Compiler::loadInterpreterModule() {
 
 const ParsedModule& Compiler::moduleForProgramKind(Program::Kind kind) {
     switch (kind) {
-        case Program::kVertex_Kind:            return fVertexModule;                 break;
-        case Program::kFragment_Kind:          return fFragmentModule;               break;
-        case Program::kGeometry_Kind:          return this->loadGeometryModule();    break;
-        case Program::kFragmentProcessor_Kind: return this->loadFPModule();          break;
-        case Program::kPipelineStage_Kind:     return this->loadPipelineModule();    break;
-        case Program::kGeneric_Kind:           return this->loadInterpreterModule(); break;
+        case Program::kVertex_Kind:            return this->loadVertexModule();        break;
+        case Program::kFragment_Kind:          return this->loadFragmentModule();      break;
+        case Program::kGeometry_Kind:          return this->loadGeometryModule();      break;
+        case Program::kFragmentProcessor_Kind: return this->loadFPModule();            break;
+        case Program::kRuntimeEffect_Kind:     return this->loadRuntimeEffectModule(); break;
+        case Program::kGeneric_Kind:           return this->loadInterpreterModule();   break;
     }
     SkUNREACHABLE;
 }
@@ -289,10 +303,11 @@ LoadedModule Compiler::loadModule(Program::Kind kind,
     fIRGenerator->fCanInline = false;
     ParsedModule baseModule = {base, /*fIntrinsics=*/nullptr};
     IRGenerator::IRBundle ir =
-            fIRGenerator->convertProgram(kind, &settings, &standaloneCaps, baseModule,
+            fIRGenerator->convertProgram(kind, &settings, baseModule,
                                          /*isBuiltinCode=*/true, source->c_str(), source->length(),
-                                         /*externalValues=*/nullptr);
-    LoadedModule module = {std::move(ir.fSymbolTable), std::move(ir.fElements)};
+                                         /*externalFunctions=*/nullptr);
+    SkASSERT(ir.fSharedElements.empty());
+    LoadedModule module = { kind, std::move(ir.fSymbolTable), std::move(ir.fElements) };
     fIRGenerator->fCanInline = true;
     if (this->fErrorCount) {
         printf("Unexpected errors: %s\n", this->fErrorText.c_str());
@@ -303,7 +318,7 @@ LoadedModule Compiler::loadModule(Program::Kind kind,
     SkASSERT(data.fData && (data.fSize != 0));
     Rehydrator rehydrator(fContext.get(), fIRGenerator->fModifiers.get(), base, this,
                           data.fData, data.fSize);
-    LoadedModule module = { rehydrator.symbolTable(), rehydrator.elements() };
+    LoadedModule module = { kind, rehydrator.symbolTable(), rehydrator.elements() };
     fModifiers.push_back(fIRGenerator->releaseModifiers());
 #endif
 
@@ -311,19 +326,20 @@ LoadedModule Compiler::loadModule(Program::Kind kind,
 }
 
 ParsedModule Compiler::parseModule(Program::Kind kind, ModuleData data, const ParsedModule& base) {
-    auto [symbols, elements] = this->loadModule(kind, data, base.fSymbols);
+    LoadedModule module = this->loadModule(kind, data, base.fSymbols);
+    this->optimize(module);
 
     // For modules that just declare (but don't define) intrinsic functions, there will be no new
     // program elements. In that case, we can share our parent's intrinsic map:
-    if (elements.empty()) {
-        return {symbols, base.fIntrinsics};
+    if (module.fElements.empty()) {
+        return {module.fSymbols, base.fIntrinsics};
     }
 
     auto intrinsics = std::make_shared<IRIntrinsicMap>(base.fIntrinsics.get());
 
     // Now, transfer all of the program elements to an intrinsic map. This maps certain types of
     // global objects to the declaring ProgramElement.
-    for (std::unique_ptr<ProgramElement>& element : elements) {
+    for (std::unique_ptr<ProgramElement>& element : module.fElements) {
         switch (element->kind()) {
             case ProgramElement::Kind::kFunction: {
                 const FunctionDefinition& f = element->as<FunctionDefinition>();
@@ -361,7 +377,7 @@ ParsedModule Compiler::parseModule(Program::Kind kind, ModuleData data, const Pa
         }
     }
 
-    return {symbols, std::move(intrinsics)};
+    return {module.fSymbols, std::move(intrinsics)};
 }
 
 // add the definition created by assigning to the lvalue to the definition set
@@ -408,8 +424,6 @@ void Compiler::addDefinition(const Expression* lvalue, std::unique_ptr<Expressio
             this->addDefinition(lvalue->as<TernaryExpression>().ifFalse().get(),
                                 (std::unique_ptr<Expression>*) &fContext->fDefined_Expression,
                                 definitions);
-            break;
-        case Expression::Kind::kExternalValue:
             break;
         default:
             // not an lvalue, can't happen
@@ -509,8 +523,7 @@ void Compiler::scanCFG(CFG* cfg, BlockId blockId, SkBitSet* processedSet) {
             continue;
         }
         BasicBlock& exit = cfg->fBlocks[exitId];
-        after.foreach([&](const Variable* var, std::unique_ptr<Expression>** e1Ptr) {
-            std::unique_ptr<Expression>* e1 = *e1Ptr;
+        for (const auto& [var, e1] : after) {
             std::unique_ptr<Expression>** exitDef = exit.fBefore.find(var);
             if (!exitDef) {
                 // exit has no definition for it, just copy it and reprocess exit block
@@ -529,7 +542,7 @@ void Compiler::scanCFG(CFG* cfg, BlockId blockId, SkBitSet* processedSet) {
                     }
                 }
             }
-        });
+        }
     }
 }
 
@@ -572,8 +585,6 @@ static bool is_dead(const Expression& lvalue, ProgramUsage* usage) {
                    is_dead(*t.ifTrue(), usage) &&
                    is_dead(*t.ifFalse(), usage);
         }
-        case Expression::Kind::kExternalValue:
-            return false;
         default:
 #ifdef SK_DEBUG
             ABORT("invalid lvalue: %s\n", lvalue.description().c_str());
@@ -639,23 +650,25 @@ static bool is_constant(const Expression& expr, T value) {
             const Constructor& constructor = expr.as<Constructor>();
             if (constructor.isCompileTimeConstant()) {
                 const Type& constructorType = constructor.type();
-                bool isFloat = constructorType.columns() > 1
-                                       ? constructorType.componentType().isFloat()
-                                       : constructorType.isFloat();
                 switch (constructorType.typeKind()) {
                     case Type::TypeKind::kVector:
-                        for (int i = 0; i < constructorType.columns(); ++i) {
-                            if (isFloat) {
+                        if (constructor.componentType().isFloat()) {
+                            for (int i = 0; i < constructorType.columns(); ++i) {
                                 if (constructor.getFVecComponent(i) != value) {
                                     return false;
                                 }
-                            } else {
+                            }
+                            return true;
+                        } else if (constructor.componentType().isInteger()) {
+                            for (int i = 0; i < constructorType.columns(); ++i) {
                                 if (constructor.getIVecComponent(i) != value) {
                                     return false;
                                 }
                             }
+                            return true;
                         }
-                        return true;
+                        // Other types (e.g. boolean) might occur, but aren't supported here.
+                        return false;
 
                     case Type::TypeKind::kScalar:
                         SkASSERT(constructor.arguments().size() == 1);
@@ -765,8 +778,8 @@ static void vectorize(BasicBlock* b,
                       std::unique_ptr<Expression>* otherExpression,
                       Compiler::OptimizationContext* optimizationContext) {
     SkASSERT((*(*iter)->expression())->kind() == Expression::Kind::kBinary);
-    SkASSERT(type.typeKind() == Type::TypeKind::kVector);
-    SkASSERT((*otherExpression)->type().typeKind() == Type::TypeKind::kScalar);
+    SkASSERT(type.isVector());
+    SkASSERT((*otherExpression)->type().isScalar());
     optimizationContext->fUpdated = true;
     std::unique_ptr<Expression>* target = (*iter)->expression();
     if (!b->tryRemoveExpression(iter)) {
@@ -834,6 +847,7 @@ void Compiler::simplifyExpression(DefinitionMap& definitions,
                                   OptimizationContext* optimizationContext) {
     Expression* expr = (*iter)->expression()->get();
     SkASSERT(expr);
+
     if ((*iter)->fConstantPropagation) {
         std::unique_ptr<Expression> optimized = expr->constantPropagate(*fIRGenerator,
                                                                         definitions);
@@ -891,17 +905,14 @@ void Compiler::simplifyExpression(DefinitionMap& definitions,
             const Type& leftType = left.type();
             const Type& rightType = right.type();
             // collapse useless expressions like x * 1 or x + 0
-            if (((leftType.typeKind() != Type::TypeKind::kScalar) &&
-                 (leftType.typeKind() != Type::TypeKind::kVector)) ||
-                ((rightType.typeKind() != Type::TypeKind::kScalar) &&
-                 (rightType.typeKind() != Type::TypeKind::kVector))) {
+            if ((!leftType.isScalar() && !leftType.isVector()) ||
+                (!rightType.isScalar() && !rightType.isVector())) {
                 break;
             }
             switch (bin->getOperator()) {
                 case Token::Kind::TK_STAR:
                     if (is_constant(left, 1)) {
-                        if (leftType.typeKind() == Type::TypeKind::kVector &&
-                            rightType.typeKind() == Type::TypeKind::kScalar) {
+                        if (leftType.isVector() && rightType.isScalar()) {
                             // float4(1) * x -> float4(x)
                             vectorize_right(&b, iter, optimizationContext);
                         } else {
@@ -912,8 +923,7 @@ void Compiler::simplifyExpression(DefinitionMap& definitions,
                         }
                     }
                     else if (is_constant(left, 0)) {
-                        if (leftType.typeKind() == Type::TypeKind::kScalar &&
-                            rightType.typeKind() == Type::TypeKind::kVector &&
+                        if (leftType.isScalar() && rightType.isVector() &&
                             !right.hasSideEffects()) {
                             // 0 * float4(x) -> float4(0)
                             vectorize_left(&b, iter, optimizationContext);
@@ -927,8 +937,7 @@ void Compiler::simplifyExpression(DefinitionMap& definitions,
                         }
                     }
                     else if (is_constant(right, 1)) {
-                        if (leftType.typeKind() == Type::TypeKind::kScalar &&
-                            rightType.typeKind() == Type::TypeKind::kVector) {
+                        if (leftType.isScalar() && rightType.isVector()) {
                             // x * float4(1) -> float4(x)
                             vectorize_left(&b, iter, optimizationContext);
                         } else {
@@ -939,9 +948,7 @@ void Compiler::simplifyExpression(DefinitionMap& definitions,
                         }
                     }
                     else if (is_constant(right, 0)) {
-                        if (leftType.typeKind() == Type::TypeKind::kVector &&
-                            rightType.typeKind() == Type::TypeKind::kScalar &&
-                            !left.hasSideEffects()) {
+                        if (leftType.isVector() && rightType.isScalar() && !left.hasSideEffects()) {
                             // float4(x) * 0 -> float4(0)
                             vectorize_right(&b, iter, optimizationContext);
                         } else {
@@ -956,8 +963,7 @@ void Compiler::simplifyExpression(DefinitionMap& definitions,
                     break;
                 case Token::Kind::TK_PLUS:
                     if (is_constant(left, 0)) {
-                        if (leftType.typeKind() == Type::TypeKind::kVector &&
-                            rightType.typeKind() == Type::TypeKind::kScalar) {
+                        if (leftType.isVector() && rightType.isScalar()) {
                             // float4(0) + x -> float4(x)
                             vectorize_right(&b, iter, optimizationContext);
                         } else {
@@ -967,8 +973,7 @@ void Compiler::simplifyExpression(DefinitionMap& definitions,
                             delete_left(&b, iter, optimizationContext);
                         }
                     } else if (is_constant(right, 0)) {
-                        if (leftType.typeKind() == Type::TypeKind::kScalar &&
-                            rightType.typeKind() == Type::TypeKind::kVector) {
+                        if (leftType.isScalar() && rightType.isVector()) {
                             // x + float4(0) -> float4(x)
                             vectorize_left(&b, iter, optimizationContext);
                         } else {
@@ -981,8 +986,7 @@ void Compiler::simplifyExpression(DefinitionMap& definitions,
                     break;
                 case Token::Kind::TK_MINUS:
                     if (is_constant(right, 0)) {
-                        if (leftType.typeKind() == Type::TypeKind::kScalar &&
-                            rightType.typeKind() == Type::TypeKind::kVector) {
+                        if (leftType.isScalar() && rightType.isVector()) {
                             // x - float4(0) -> float4(x)
                             vectorize_left(&b, iter, optimizationContext);
                         } else {
@@ -995,8 +999,7 @@ void Compiler::simplifyExpression(DefinitionMap& definitions,
                     break;
                 case Token::Kind::TK_SLASH:
                     if (is_constant(right, 1)) {
-                        if (leftType.typeKind() == Type::TypeKind::kScalar &&
-                            rightType.typeKind() == Type::TypeKind::kVector) {
+                        if (leftType.isScalar() && rightType.isVector()) {
                             // x / float4(1) -> float4(x)
                             vectorize_left(&b, iter, optimizationContext);
                         } else {
@@ -1006,8 +1009,7 @@ void Compiler::simplifyExpression(DefinitionMap& definitions,
                             delete_right(&b, iter, optimizationContext);
                         }
                     } else if (is_constant(left, 0)) {
-                        if (leftType.typeKind() == Type::TypeKind::kScalar &&
-                            rightType.typeKind() == Type::TypeKind::kVector &&
+                        if (leftType.isScalar() && rightType.isVector() &&
                             !right.hasSideEffects()) {
                             // 0 / float4(x) -> float4(0)
                             vectorize_left(&b, iter, optimizationContext);
@@ -1050,9 +1052,61 @@ void Compiler::simplifyExpression(DefinitionMap& definitions,
             }
             break;
         }
+        case Expression::Kind::kConstructor: {
+            // Find constructors embedded inside constructors and flatten them out where possible.
+            //   -  float4(float2(1, 2), 3, 4)                -->  float4(1, 2, 3, 4)
+            //   -  float4(w, float3(sin(x), cos(y), tan(z))) -->  float4(w, sin(x), cos(y), tan(z))
+            // Leave single-argument constructors alone, though. These might be casts or splats.
+            Constructor& c = expr->as<Constructor>();
+            if (c.type().columns() > 1) {
+                // Inspect each constructor argument to see if it's a candidate for flattening.
+                // Remember matched arguments in a bitfield, "argsToOptimize".
+                int argsToOptimize = 0;
+                int currBit = 1;
+                for (const std::unique_ptr<Expression>& arg : c.arguments()) {
+                    if (arg->is<Constructor>()) {
+                        Constructor& inner = arg->as<Constructor>();
+                        if (inner.arguments().size() > 1 &&
+                            inner.type().componentType() == c.type().componentType()) {
+                            argsToOptimize |= currBit;
+                        }
+                    }
+                    currBit <<= 1;
+                }
+                if (argsToOptimize) {
+                    // We found at least one argument that could be flattened out. Re-walk the
+                    // constructor args and flatten the candidates we found during our initial pass.
+                    ExpressionArray flattened;
+                    flattened.reserve_back(c.type().columns());
+                    currBit = 1;
+                    for (const std::unique_ptr<Expression>& arg : c.arguments()) {
+                        if (argsToOptimize & currBit) {
+                            Constructor& inner = arg->as<Constructor>();
+                            for (const std::unique_ptr<Expression>& innerArg : inner.arguments()) {
+                                flattened.push_back(innerArg->clone());
+                            }
+                        } else {
+                            flattened.push_back(arg->clone());
+                        }
+                        currBit <<= 1;
+                    }
+                    auto optimized = std::unique_ptr<Expression>(
+                            new Constructor(c.fOffset, &c.type(), std::move(flattened)));
+                    // No fUsage change; no references have been added or removed anywhere.
+                    optimizationContext->fUpdated = true;
+                    if (!try_replace_expression(&b, iter, &optimized)) {
+                        optimizationContext->fNeedsRescan = true;
+                        return;
+                    }
+                    SkASSERT((*iter)->isExpression());
+                    break;
+                }
+            }
+            break;
+        }
         case Expression::Kind::kSwizzle: {
             Swizzle& s = expr->as<Swizzle>();
-            // detect identity swizzles like foo.rgba
+            // Detect identity swizzles like `foo.rgba`.
             if ((int) s.components().size() == s.base()->type().columns()) {
                 bool identity = true;
                 for (int i = 0; i < (int) s.components().size(); ++i) {
@@ -1072,22 +1126,181 @@ void Compiler::simplifyExpression(DefinitionMap& definitions,
                     break;
                 }
             }
-            // detect swizzles of swizzles, e.g. replace foo.argb.r000 with foo.a000
-            if (s.base()->kind() == Expression::Kind::kSwizzle) {
+            // Detect swizzles of swizzles, e.g. replace `foo.argb.r000` with `foo.a000`.
+            if (s.base()->is<Swizzle>()) {
                 Swizzle& base = s.base()->as<Swizzle>();
                 ComponentArray final;
                 for (int c : s.components()) {
                     final.push_back(base.components()[c]);
                 }
-                optimizationContext->fUpdated = true;
                 std::unique_ptr<Expression> replacement(new Swizzle(*fContext, base.base()->clone(),
                                                                     final));
-                // No fUsage change: foo.gbr.gbr and foo.brg have equivalent reference counts
-                if (!try_replace_expression(&b, iter, &replacement)) {
+                // We're replacing an expression with a cloned version; we'll need a rescan.
+                // No fUsage change: `foo.gbr.gbr` and `foo.brg` have equivalent reference counts
+                try_replace_expression(&b, iter, &replacement);
+                optimizationContext->fUpdated = true;
+                optimizationContext->fNeedsRescan = true;
+                break;
+            }
+            // Optimize swizzles of constructors.
+            if (s.base()->is<Constructor>()) {
+                Constructor& base = s.base()->as<Constructor>();
+                std::unique_ptr<Expression> replacement;
+                const Type& componentType = base.type().componentType();
+                int swizzleSize = s.components().size();
+
+                // The IR generator has already converted any zero/one swizzle components into
+                // constructors containing zero/one args. Confirm that this is true by checking that
+                // our swizzle components are all `xyzw` (values 0 through 3).
+                SkASSERT(std::all_of(s.components().begin(), s.components().end(),
+                                     [](int8_t c) { return c >= 0 && c <= 3; }));
+
+                if (base.arguments().size() == 1 && base.arguments().front()->type().isScalar()) {
+                    // `half4(scalar).zyy` can be optimized to `half3(scalar)`. The swizzle
+                    // components don't actually matter since all fields are the same.
+                    const Expression& argument = *base.arguments().front();
+                    const Type& constructorType = componentType.toCompound(*fContext, swizzleSize,
+                                                                           /*rows=*/1);
+                    replacement = Constructor::SimplifyConversion(constructorType, argument);
+                    if (!replacement) {
+                        ExpressionArray newArgs;
+                        newArgs.push_back(argument.clone());
+                        replacement = std::make_unique<Constructor>(base.fOffset, &constructorType,
+                                                                    std::move(newArgs));
+                    }
+
+                    // We're replacing an expression with a cloned version; we'll need a rescan.
+                    // There's no fUsage change: `half4(foo).xy` and `half2(foo)` have equivalent
+                    // reference counts.
+                    try_replace_expression(&b, iter, &replacement);
+                    optimizationContext->fUpdated = true;
                     optimizationContext->fNeedsRescan = true;
-                    return;
+                    break;
                 }
-                SkASSERT((*iter)->isExpression());
+
+                // Swizzles can duplicate some elements and discard others, e.g.
+                // `half4(1, 2, 3, 4).xxz` --> `half3(1, 1, 3)`. However, there are constraints:
+                // - Expressions with side effects need to occur exactly once, even if they
+                //   would otherwise be swizzle-eliminated
+                // - Non-trivial expressions should not be repeated, but elimination is OK.
+                //
+                // Look up the argument for the constructor at each index. This is typically simple
+                // but for weird cases like `half4(bar.yz, half2(foo))`, it can be harder than it
+                // seems. This example would result in:
+                //     argMap[0] = {.fArgIndex = 0, .fComponent = 0}   (bar.yz     .x)
+                //     argMap[1] = {.fArgIndex = 0, .fComponent = 1}   (bar.yz     .y)
+                //     argMap[2] = {.fArgIndex = 1, .fComponent = 0}   (half2(foo) .x)
+                //     argMap[3] = {.fArgIndex = 1, .fComponent = 1}   (half2(foo) .y)
+                struct ConstructorArgMap {
+                    int8_t fArgIndex;
+                    int8_t fComponent;
+                };
+
+                int numConstructorArgs = base.type().columns();
+                ConstructorArgMap argMap[4] = {};
+                int writeIdx = 0;
+                for (int argIdx = 0; argIdx < (int) base.arguments().size(); ++argIdx) {
+                    const Expression& expr = *base.arguments()[argIdx];
+                    int argWidth = expr.type().columns();
+                    for (int componentIdx = 0; componentIdx < argWidth; ++componentIdx) {
+                        argMap[writeIdx].fArgIndex = argIdx;
+                        argMap[writeIdx].fComponent = componentIdx;
+                        ++writeIdx;
+                    }
+                }
+                SkASSERT(writeIdx == numConstructorArgs);
+
+                // Count up the number of times each constructor argument is used by the
+                // swizzle.
+                //    `half4(bar.yz, half2(foo)).xwxy` -> { 3, 1 }
+                // - bar.yz    is referenced 3 times, by `.x_xy`
+                // - half(foo) is referenced 1 time,  by `._w__`
+                int8_t exprUsed[4] = {};
+                for (int c : s.components()) {
+                    exprUsed[argMap[c].fArgIndex]++;
+                }
+
+                bool safeToOptimize = true;
+                for (int index = 0; index < numConstructorArgs; ++index) {
+                    int8_t constructorArgIndex = argMap[index].fArgIndex;
+                    const Expression& baseArg = *base.arguments()[constructorArgIndex];
+
+                    // Check that non-trivial expressions are not swizzled in more than once.
+                    if (exprUsed[constructorArgIndex] > 1 &&
+                            !Analysis::IsTrivialExpression(baseArg)) {
+                        safeToOptimize = false;
+                        break;
+                    }
+                    // Check that side-effect-bearing expressions are swizzled in exactly once.
+                    if (exprUsed[constructorArgIndex] != 1 && baseArg.hasSideEffects()) {
+                        safeToOptimize = false;
+                        break;
+                    }
+                }
+
+                if (safeToOptimize) {
+                    struct ReorderedArgument {
+                        int8_t fArgIndex;
+                        ComponentArray fComponents;
+                    };
+                    SkSTArray<4, ReorderedArgument> reorderedArgs;
+                    for (int c : s.components()) {
+                        const ConstructorArgMap& argument = argMap[c];
+                        const Expression& baseArg = *base.arguments()[argument.fArgIndex];
+
+                        if (baseArg.type().isScalar()) {
+                            // This argument is a scalar; add it to the list as-is.
+                            SkASSERT(argument.fComponent == 0);
+                            reorderedArgs.push_back({argument.fArgIndex,
+                                                     ComponentArray{}});
+                        } else {
+                            // This argument is a component from a vector.
+                            SkASSERT(argument.fComponent < baseArg.type().columns());
+                            if (reorderedArgs.empty() ||
+                                reorderedArgs.back().fArgIndex != argument.fArgIndex) {
+                                // This can't be combined with the previous argument. Add a new one.
+                                reorderedArgs.push_back({argument.fArgIndex,
+                                                         ComponentArray{argument.fComponent}});
+                            } else {
+                                // Since we know this argument uses components, it should already
+                                // have at least one component set.
+                                SkASSERT(!reorderedArgs.back().fComponents.empty());
+                                // Build up the current argument with one more component.
+                                reorderedArgs.back().fComponents.push_back(argument.fComponent);
+                            }
+                        }
+                    }
+
+                    // Convert our reordered argument list to an actual array of expressions, with
+                    // the new order and any new inner swizzles that need to be applied. Note that
+                    // we expect followup passes to clean up the inner swizzles.
+                    ExpressionArray newArgs;
+                    newArgs.reserve_back(swizzleSize);
+                    for (const ReorderedArgument& reorderedArg : reorderedArgs) {
+                        const Expression& baseArg = *base.arguments()[reorderedArg.fArgIndex];
+                        if (reorderedArg.fComponents.empty()) {
+                            newArgs.push_back(baseArg.clone());
+                        } else {
+                            newArgs.push_back(std::make_unique<Swizzle>(*fContext, baseArg.clone(),
+                                                                        reorderedArg.fComponents));
+                        }
+                    }
+
+                    // Create a new constructor.
+                    replacement = std::make_unique<Constructor>(
+                            base.fOffset,
+                            &componentType.toCompound(*fContext, swizzleSize, /*rows=*/1),
+                            std::move(newArgs));
+
+                    // Remove references within 'expr', add references within 'replacement.'
+                    optimizationContext->fUsage->replace(expr, replacement.get());
+
+                    // We're replacing an expression with a cloned version; we'll need a rescan.
+                    try_replace_expression(&b, iter, &replacement);
+                    optimizationContext->fUpdated = true;
+                    optimizationContext->fNeedsRescan = true;
+                }
+                break;
             }
             break;
         }
@@ -1402,7 +1615,7 @@ bool Compiler::scanCFG(FunctionDefinition& f, ProgramUsage* usage) {
     // check for unreachable code
     for (size_t i = 0; i < cfg.fBlocks.size(); i++) {
         const BasicBlock& block = cfg.fBlocks[i];
-        if (i != cfg.fStart && !block.fIsReachable && block.fNodes.size()) {
+        if (!block.fIsReachable && !block.fAllowUnreachable && block.fNodes.size()) {
             int offset;
             const BasicBlock::Node& node = block.fNodes[0];
             if (node.isStatement()) {
@@ -1523,7 +1736,7 @@ bool Compiler::scanCFG(FunctionDefinition& f, ProgramUsage* usage) {
     }
 
     // check for missing return
-    if (f.declaration().returnType() != *fContext->fVoid_Type) {
+    if (f.declaration().returnType() != *fContext->fTypes.fVoid) {
         if (cfg.fBlocks[cfg.fExit].fIsReachable) {
             this->error(f.fOffset, String("function '" + String(f.declaration().name()) +
                                           "' can exit without returning a value"));
@@ -1537,32 +1750,38 @@ std::unique_ptr<Program> Compiler::convertProgram(
         Program::Kind kind,
         String text,
         const Program::Settings& settings,
-        const std::vector<std::unique_ptr<ExternalValue>>* externalValues) {
-    SkASSERT(!externalValues || (kind == Program::kGeneric_Kind));
+        const std::vector<std::unique_ptr<ExternalFunction>>* externalFunctions) {
+    SkASSERT(!externalFunctions || (kind == Program::kGeneric_Kind));
+
+    // Loading and optimizing our base module might reset the inliner, so do that first,
+    // *then* configure the inliner with the settings for this program.
+    const ParsedModule& baseModule = this->moduleForProgramKind(kind);
 
     fErrorText = "";
     fErrorCount = 0;
-    fInliner.reset(fContext.get(), fIRGenerator->fModifiers.get(), &settings, fCaps);
+    fInliner.reset(fIRGenerator->fModifiers.get(), &settings);
 
     // Not using AutoSource, because caller is likely to call errorText() if we fail to compile
     std::unique_ptr<String> textPtr(new String(std::move(text)));
     fSource = textPtr.get();
 
-    const ParsedModule& baseModule = this->moduleForProgramKind(kind);
-
     // Enable node pooling while converting and optimizing the program for a performance boost.
     // The Program will take ownership of the pool.
-    std::unique_ptr<Pool> pool = Pool::Create();
-    pool->attachToThread();
-    IRGenerator::IRBundle ir = fIRGenerator->convertProgram(
-            kind, &settings, fCaps, baseModule, /*isBuiltinCode=*/false, textPtr->c_str(),
-            textPtr->size(), externalValues);
+    std::unique_ptr<Pool> pool;
+    if (fCaps->useNodePools()) {
+        pool = Pool::Create();
+        pool->attachToThread();
+    }
+    IRGenerator::IRBundle ir =
+            fIRGenerator->convertProgram(kind, &settings, baseModule, /*isBuiltinCode=*/false,
+                                         textPtr->c_str(), textPtr->size(), externalFunctions);
     auto program = std::make_unique<Program>(kind,
                                              std::move(textPtr),
                                              settings,
                                              fCaps,
                                              fContext,
                                              std::move(ir.fElements),
+                                             std::move(ir.fSharedElements),
                                              std::move(ir.fModifiers),
                                              std::move(ir.fSymbolTable),
                                              std::move(pool),
@@ -1577,8 +1796,39 @@ std::unique_ptr<Program> Compiler::convertProgram(
         success = true;
     }
 
-    program->fPool->detachFromThread();
+    if (program->fPool) {
+        program->fPool->detachFromThread();
+    }
     return success ? std::move(program) : nullptr;
+}
+
+bool Compiler::optimize(LoadedModule& module) {
+    SkASSERT(!fErrorCount);
+    Program::Settings settings;
+    fIRGenerator->fKind = module.fKind;
+    fIRGenerator->fSettings = &settings;
+    std::unique_ptr<ProgramUsage> usage = Analysis::GetUsage(module);
+
+    fInliner.reset(fModifiers.back().get(), &settings);
+
+    while (fErrorCount == 0) {
+        bool madeChanges = false;
+
+        // Scan and optimize based on the control-flow graph for each function.
+        for (const auto& element : module.fElements) {
+            if (element->is<FunctionDefinition>()) {
+                madeChanges |= this->scanCFG(element->as<FunctionDefinition>(), usage.get());
+            }
+        }
+
+        // Perform inline-candidate analysis and inline any functions deemed suitable.
+        madeChanges |= fInliner.analyze(module.fElements, module.fSymbols, usage.get());
+
+        if (!madeChanges) {
+            break;
+        }
+    }
+    return fErrorCount == 0;
 }
 
 bool Compiler::optimize(Program& program) {
@@ -1591,53 +1841,66 @@ bool Compiler::optimize(Program& program) {
         bool madeChanges = false;
 
         // Scan and optimize based on the control-flow graph for each function.
-        for (const auto& element : program.elements()) {
+        for (const auto& element : program.ownedElements()) {
             if (element->is<FunctionDefinition>()) {
                 madeChanges |= this->scanCFG(element->as<FunctionDefinition>(), usage);
             }
         }
 
         // Perform inline-candidate analysis and inline any functions deemed suitable.
-        madeChanges |= fInliner.analyze(program);
+        madeChanges |= fInliner.analyze(program.ownedElements(), program.fSymbols, usage);
 
         // Remove dead functions. We wait until after analysis so that we still report errors,
         // even in unused code.
         if (program.fSettings.fRemoveDeadFunctions) {
+            auto isDeadFunction = [&](const ProgramElement* element) {
+                if (!element->is<FunctionDefinition>()) {
+                    return false;
+                }
+                const FunctionDefinition& fn = element->as<FunctionDefinition>();
+                if (fn.declaration().name() != "main" && usage->get(fn.declaration()) == 0) {
+                    usage->remove(*element);
+                    madeChanges = true;
+                    return true;
+                }
+                return false;
+            };
             program.fElements.erase(
-                    std::remove_if(program.fElements.begin(),
-                                   program.fElements.end(),
+                    std::remove_if(program.fElements.begin(), program.fElements.end(),
                                    [&](const std::unique_ptr<ProgramElement>& element) {
-                                       if (!element->is<FunctionDefinition>()) {
-                                           return false;
-                                       }
-                                       const auto& fn = element->as<FunctionDefinition>();
-                                       bool dead = fn.declaration().name() != "main" &&
-                                                   usage->get(fn.declaration()) == 0;
-                                       if (dead) {
-                                           madeChanges = true;
-                                           usage->remove(*element);
-                                       }
-                                       return dead;
+                                       return isDeadFunction(element.get());
                                    }),
                     program.fElements.end());
+            program.fSharedElements.erase(
+                    std::remove_if(program.fSharedElements.begin(), program.fSharedElements.end(),
+                                   isDeadFunction),
+                    program.fSharedElements.end());
         }
 
         if (program.fKind != Program::kFragmentProcessor_Kind) {
             // Remove declarations of dead global variables
+            auto isDeadVariable = [&](const ProgramElement* element) {
+                if (!element->is<GlobalVarDeclaration>()) {
+                    return false;
+                }
+                const GlobalVarDeclaration& global = element->as<GlobalVarDeclaration>();
+                const VarDeclaration& varDecl = global.declaration()->as<VarDeclaration>();
+                if (usage->isDead(varDecl.var())) {
+                    madeChanges = true;
+                    return true;
+                }
+                return false;
+            };
             program.fElements.erase(
                     std::remove_if(program.fElements.begin(), program.fElements.end(),
                                    [&](const std::unique_ptr<ProgramElement>& element) {
-                                       if (!element->is<GlobalVarDeclaration>()) {
-                                           return false;
-                                       }
-                                       const auto& global = element->as<GlobalVarDeclaration>();
-                                       const auto& varDecl =
-                                                         global.declaration()->as<VarDeclaration>();
-                                       bool dead = usage->isDead(varDecl.var());
-                                       madeChanges |= dead;
-                                       return dead;
+                                       return isDeadVariable(element.get());
                                    }),
                     program.fElements.end());
+            program.fSharedElements.erase(
+                    std::remove_if(program.fSharedElements.begin(), program.fSharedElements.end(),
+                                   isDeadVariable),
+                    program.fSharedElements.end());
         }
 
         if (!madeChanges) {
@@ -1659,13 +1922,30 @@ bool Compiler::toSPIRV(Program& program, OutputStream& out) {
         spvtools::SpirvTools tools(SPV_ENV_VULKAN_1_0);
         const String& data = buffer.str();
         SkASSERT(0 == data.size() % 4);
-        auto dumpmsg = [](spv_message_level_t, const char*, const spv_position_t&, const char* m) {
-            SkDebugf("SPIR-V validation error: %s\n", m);
+        String errors;
+        auto dumpmsg = [&errors](spv_message_level_t, const char*, const spv_position_t&,
+                                 const char* m) {
+            errors.appendf("SPIR-V validation error: %s\n", m);
         };
         tools.SetMessageConsumer(dumpmsg);
-        // Verify that the SPIR-V we produced is valid. If this SkASSERT fails, check the logs prior
-        // to the failure to see the validation errors.
-        SkAssertResult(tools.Validate((const uint32_t*) data.c_str(), data.size() / 4));
+
+        // Verify that the SPIR-V we produced is valid. At runtime, we will abort() with a message
+        // explaining the error. In standalone mode (skslc), we will send the message, plus the
+        // entire disassembled SPIR-V (for easier context & debugging) as *our* error message.
+        result = tools.Validate((const uint32_t*) data.c_str(), data.size() / 4);
+
+        if (!result) {
+#if defined(SKSL_STANDALONE)
+            // Convert the string-stream to a SPIR-V disassembly.
+            std::string disassembly;
+            if (tools.Disassemble((const uint32_t*)data.data(), data.size() / 4, &disassembly)) {
+                errors.append(disassembly);
+            }
+            this->error(-1, errors);
+#else
+            SkDEBUGFAILF("%s", errors.c_str());
+#endif
+        }
         out.write(data.c_str(), data.size());
     }
 #else
@@ -1757,7 +2037,6 @@ bool Compiler::toPipelineStage(Program& program, PipelineStageArgs* outArgs) {
 #endif
 
 std::unique_ptr<ByteCode> Compiler::toByteCode(Program& program) {
-#if defined(SK_ENABLE_SKSL_INTERPRETER)
     AutoSource as(this, program.fSource.get());
     std::unique_ptr<ByteCode> result(new ByteCode());
     ByteCodeGenerator cg(fContext.get(), &program, this, result.get());
@@ -1765,9 +2044,6 @@ std::unique_ptr<ByteCode> Compiler::toByteCode(Program& program) {
     if (success) {
         return result;
     }
-#else
-    ABORT("ByteCode interpreter not enabled");
-#endif
     return nullptr;
 }
 
@@ -1802,9 +2078,6 @@ const char* Compiler::OperatorName(Token::Kind op) {
         case Token::Kind::TK_PERCENTEQ:    return "%=";
         case Token::Kind::TK_SHLEQ:        return "<<=";
         case Token::Kind::TK_SHREQ:        return ">>=";
-        case Token::Kind::TK_LOGICALANDEQ: return "&&=";
-        case Token::Kind::TK_LOGICALOREQ:  return "||=";
-        case Token::Kind::TK_LOGICALXOREQ: return "^^=";
         case Token::Kind::TK_BITWISEANDEQ: return "&=";
         case Token::Kind::TK_BITWISEOREQ:  return "|=";
         case Token::Kind::TK_BITWISEXOREQ: return "^=";
@@ -1829,10 +2102,7 @@ bool Compiler::IsAssignment(Token::Kind op) {
         case Token::Kind::TK_SHREQ:        // fall through
         case Token::Kind::TK_BITWISEOREQ:  // fall through
         case Token::Kind::TK_BITWISEXOREQ: // fall through
-        case Token::Kind::TK_BITWISEANDEQ: // fall through
-        case Token::Kind::TK_LOGICALOREQ:  // fall through
-        case Token::Kind::TK_LOGICALXOREQ: // fall through
-        case Token::Kind::TK_LOGICALANDEQ:
+        case Token::Kind::TK_BITWISEANDEQ:
             return true;
         default:
             return false;
@@ -1851,39 +2121,42 @@ Token::Kind Compiler::RemoveAssignment(Token::Kind op) {
         case Token::Kind::TK_BITWISEOREQ:  return Token::Kind::TK_BITWISEOR;
         case Token::Kind::TK_BITWISEXOREQ: return Token::Kind::TK_BITWISEXOR;
         case Token::Kind::TK_BITWISEANDEQ: return Token::Kind::TK_BITWISEAND;
-        case Token::Kind::TK_LOGICALOREQ:  return Token::Kind::TK_LOGICALOR;
-        case Token::Kind::TK_LOGICALXOREQ: return Token::Kind::TK_LOGICALXOR;
-        case Token::Kind::TK_LOGICALANDEQ: return Token::Kind::TK_LOGICALAND;
         default: return op;
     }
 }
 
 Position Compiler::position(int offset) {
-    SkASSERT(fSource);
-    int line = 1;
-    int column = 1;
-    for (int i = 0; i < offset; i++) {
-        if ((*fSource)[i] == '\n') {
-            ++line;
-            column = 1;
+    if (fSource && offset >= 0) {
+        int line = 1;
+        int column = 1;
+        for (int i = 0; i < offset; i++) {
+            if ((*fSource)[i] == '\n') {
+                ++line;
+                column = 1;
+            }
+            else {
+                ++column;
+            }
         }
-        else {
-            ++column;
-        }
+        return Position(line, column);
+    } else {
+        return Position(-1, -1);
     }
-    return Position(line, column);
 }
 
 void Compiler::error(int offset, String msg) {
     fErrorCount++;
     Position pos = this->position(offset);
-    fErrorText += "error: " + to_string(pos.fLine) + ": " + msg.c_str() + "\n";
+    fErrorText += "error: " + (pos.fLine >= 1 ? to_string(pos.fLine) + ": " : "") + msg + "\n";
 }
 
-String Compiler::errorText() {
-    this->writeErrorCount();
+String Compiler::errorText(bool showCount) {
+    if (showCount) {
+        this->writeErrorCount();
+    }
     fErrorCount = 0;
     String result = fErrorText;
+    fErrorText = "";
     return result;
 }
 

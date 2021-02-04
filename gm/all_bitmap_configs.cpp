@@ -121,7 +121,7 @@ static void draw(SkCanvas* canvas,
                  SkColorType colorType,
                  const char text[]) {
     SkASSERT(src.colorType() == colorType);
-    canvas->drawBitmap(src, 0.0f, 0.0f);
+    canvas->drawImage(src.asImage(), 0.0f, 0.0f);
     canvas->drawSimpleText(text, strlen(text), SkTextEncoding::kUTF8, 0.0f, 12.0f, font, p);
 }
 
@@ -181,7 +181,7 @@ sk_sp<SkImage> make_not_native32_color_wheel() {
     static_assert(ct != kN32_SkColorType, "BRGA!=RGBA");
     SkAssertResult(ToolUtils::copy_to(&notN32bitmap, ct, n32bitmap));
     SkASSERT(notN32bitmap.colorType() == ct);
-    return SkImage::MakeFromBitmap(notN32bitmap);
+    return notN32bitmap.asImage();
 }
 
 DEF_SIMPLE_GM(not_native32_bitmap_config, canvas, SCALE, SCALE) {

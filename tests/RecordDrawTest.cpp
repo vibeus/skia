@@ -105,21 +105,21 @@ DEF_TEST(RecordDraw_SetMatrixClobber, r) {
 
     SkRecordDraw(scaleRecord, &translateCanvas, nullptr, nullptr, 0, nullptr/*bbh*/, nullptr/*callback*/);
     REPORTER_ASSERT(r, 4 == translateRecord.count());
-    assert_type<SkRecords::SetMatrix>(r, translateRecord, 0);
-    assert_type<SkRecords::Save>     (r, translateRecord, 1);
-    assert_type<SkRecords::SetMatrix>(r, translateRecord, 2);
+    assert_type<SkRecords::SetM44>(r, translateRecord, 0);
+    assert_type<SkRecords::Save>  (r, translateRecord, 1);
+    assert_type<SkRecords::SetM44>(r, translateRecord, 2);
     assert_type<SkRecords::Restore>  (r, translateRecord, 3);
 
     // When we look at translateRecord now, it should have its first +20,+20 translate,
     // then a 2x,3x scale that's been concatted with that +20,+20 translate.
-    const SkRecords::SetMatrix* setMatrix;
-    setMatrix = assert_type<SkRecords::SetMatrix>(r, translateRecord, 0);
-    REPORTER_ASSERT(r, setMatrix->matrix == translate);
+    const SkRecords::SetM44* setMatrix;
+    setMatrix = assert_type<SkRecords::SetM44>(r, translateRecord, 0);
+    REPORTER_ASSERT(r, setMatrix->matrix == SkM44(translate));
 
-    setMatrix = assert_type<SkRecords::SetMatrix>(r, translateRecord, 2);
+    setMatrix = assert_type<SkRecords::SetM44>(r, translateRecord, 2);
     SkMatrix expected = scale;
     expected.postConcat(translate);
-    REPORTER_ASSERT(r, setMatrix->matrix == expected);
+    REPORTER_ASSERT(r, setMatrix->matrix == SkM44(expected));
 }
 
 // Like a==b, with a little slop recognizing that float equality can be weird.
@@ -167,7 +167,7 @@ DEF_TEST(RecordDraw_PartialStartStop, r) {
 
     SkRecord rerecord;
     SkRecorder canvas(&rerecord, kWidth, kHeight);
-    SkRecordPartialDraw(record, &canvas, nullptr, 0, 1, 2, SkMatrix::I()); // replay just drawRect of r2
+    SkRecordPartialDraw(record, &canvas, nullptr, 0, 1, 2, SkM44()); // replay just drawRect of r2
 
     REPORTER_ASSERT(r, 1 == count_instances_of_type<SkRecords::DrawRect>(rerecord));
     int index = find_first_instances_of_type<SkRecords::DrawRect>(rerecord);
@@ -269,6 +269,7 @@ DEF_TEST(RecordDraw_drawImage, r){
             this->resetTestValues();
         }
 
+#ifdef SK_SUPPORT_LEGACY_ONDRAWIMAGERECT
         void onDrawImage(const SkImage* image, SkScalar left, SkScalar top,
                          const SkPaint* paint) override {
             fDrawImageCalled = true;
@@ -278,6 +279,7 @@ DEF_TEST(RecordDraw_drawImage, r){
                              const SkPaint* paint, SrcRectConstraint) override {
             fDrawImageRectCalled = true;
         }
+#endif
 
         void resetTestValues() {
             fDrawImageCalled = fDrawImageRectCalled = false;
@@ -293,6 +295,7 @@ DEF_TEST(RecordDraw_drawImage, r){
 
     SkCanvasMock canvas(10, 10);
 
+#ifdef SK_SUPPORT_LEGACY_ONDRAWIMAGERECT
     {
         SkRecord record;
         SkRecorder recorder(&record, 10, 10);
@@ -309,5 +312,5 @@ DEF_TEST(RecordDraw_drawImage, r){
         SkRecordDraw(record, &canvas, nullptr, nullptr, 0, nullptr, nullptr);
     }
     REPORTER_ASSERT(r, canvas.fDrawImageRectCalled);
-
+#endif
 }

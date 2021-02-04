@@ -39,18 +39,17 @@ void PipelineStageCodeGenerator::writeFunctionCall(const FunctionCall& c) {
         arguments[0]->type().typeKind() != Type::TypeKind::kSampler) {
         SkASSERT(arguments.size() <= 2);
         SkDEBUGCODE(const Type& arg0Type = arguments[0]->type());
-        SkASSERT("fragmentProcessor"  == arg0Type.name() ||
-                 "fragmentProcessor?" == arg0Type.name());
+        SkASSERT("fragmentProcessor"  == arg0Type.name());
         SkASSERT(arguments[0]->is<VariableReference>());
         int index = 0;
         bool found = false;
-        for (const auto& p : fProgram.elements()) {
+        for (const ProgramElement* p : fProgram.elements()) {
             if (p->is<GlobalVarDeclaration>()) {
                 const GlobalVarDeclaration& global = p->as<GlobalVarDeclaration>();
                 const VarDeclaration& decl = global.declaration()->as<VarDeclaration>();
                 if (&decl.var() == arguments[0]->as<VariableReference>().variable()) {
                     found = true;
-                } else if (decl.var().type() == *fContext.fFragmentProcessor_Type) {
+                } else if (decl.var().type() == *fContext.fTypes.fFragmentProcessor) {
                     ++index;
                 }
             }
@@ -61,18 +60,15 @@ void PipelineStageCodeGenerator::writeFunctionCall(const FunctionCall& c) {
         SkASSERT(found);
         size_t childCallIndex = fArgs->fFormatArgs.size();
         this->write(Compiler::kFormatArgPlaceholderStr);
-        bool matrixCall = arguments.size() == 2 &&
-                          arguments[1]->type().typeKind() == Type::TypeKind::kMatrix;
+        bool matrixCall = arguments.size() == 2 && arguments[1]->type().isMatrix();
         fArgs->fFormatArgs.push_back(Compiler::FormatArg(
                 matrixCall ? Compiler::FormatArg::Kind::kChildProcessorWithMatrix
                            : Compiler::FormatArg::Kind::kChildProcessor,
                 index));
         if (arguments.size() > 1) {
-            OutputStream* oldOut = fOut;
             StringStream buffer;
-            fOut = &buffer;
+            AutoOutputStream outputToBuffer(this, &buffer);
             this->writeExpression(*arguments[1], kSequence_Precedence);
-            fOut = oldOut;
             fArgs->fFormatArgs[childCallIndex].fCoords = buffer.str();
         }
         return;
@@ -81,7 +77,7 @@ void PipelineStageCodeGenerator::writeFunctionCall(const FunctionCall& c) {
         INHERITED::writeFunctionCall(c);
     } else {
         int index = 0;
-        for (const auto& e : fProgram.elements()) {
+        for (const ProgramElement* e : fProgram.elements()) {
             if (e->is<FunctionDefinition>()) {
                 if (&e->as<FunctionDefinition>().declaration() == &function) {
                     break;
@@ -117,7 +113,7 @@ void PipelineStageCodeGenerator::writeVariableReference(const VariableReference&
             auto varIndexByFlag = [this, &ref](uint32_t flag) {
                 int index = 0;
                 bool found = false;
-                for (const auto& e : fProgram.elements()) {
+                for (const ProgramElement* e : fProgram.elements()) {
                     if (found) {
                         break;
                     }
@@ -131,7 +127,7 @@ void PipelineStageCodeGenerator::writeVariableReference(const VariableReference&
                         // Skip over fragmentProcessors (shaders).
                         // These are indexed separately from other globals.
                         if (var.modifiers().fFlags & flag &&
-                            var.type().nonnullable() != *fContext.fFragmentProcessor_Type) {
+                            var.type() != *fContext.fTypes.fFragmentProcessor) {
                             ++index;
                         }
                     }
@@ -186,48 +182,61 @@ void PipelineStageCodeGenerator::writeSwitchStatement(const SwitchStatement& s) 
 
 void PipelineStageCodeGenerator::writeFunction(const FunctionDefinition& f) {
     fFunctionHeader = "";
-    OutputStream* oldOut = fOut;
     StringStream buffer;
-    fOut = &buffer;
+    Compiler::GLSLFunction result;
     if (f.declaration().name() == "main") {
-        // We allow public SkSL's main() to return half4 -or- float4 (ie vec4). When we emit
-        // our code in the processor, the surrounding code is going to expect half4, so we
-        // explicitly cast any returns (from main) to half4. This is only strictly necessary
-        // if the return type is float4 - injecting it unconditionally reduces the risk of an
-        // obscure bug.
-        fCastReturnsToHalf = true;
-        for (const std::unique_ptr<Statement>& stmt : f.body()->as<Block>().children()) {
-            this->writeStatement(*stmt);
-            this->writeLine();
+        {
+            AutoOutputStream streamToBuffer(this, &buffer);
+            // We allow public SkSL's main() to return half4 -or- float4 (ie vec4). When we emit
+            // our code in the processor, the surrounding code is going to expect half4, so we
+            // explicitly cast any returns (from main) to half4. This is only strictly necessary
+            // if the return type is float4 - injecting it unconditionally reduces the risk of an
+            // obscure bug.
+            fCastReturnsToHalf = true;
+            for (const std::unique_ptr<Statement>& stmt : f.body()->as<Block>().children()) {
+                this->writeStatement(*stmt);
+                this->writeLine();
+            }
+            fCastReturnsToHalf = false;
         }
-        fCastReturnsToHalf = false;
-        fOut = oldOut;
         this->write(fFunctionHeader);
         this->write(buffer.str());
     } else {
-        const FunctionDeclaration& decl = f.declaration();
-        Compiler::GLSLFunction result;
-        if (!type_to_grsltype(fContext, decl.returnType(), &result.fReturnType)) {
-            fErrors.error(f.fOffset, "unsupported return type");
-            return;
-        }
-        result.fName = decl.name();
-        for (const Variable* v : decl.parameters()) {
-            GrSLType paramSLType;
-            if (!type_to_grsltype(fContext, v->type(), &paramSLType)) {
-                fErrors.error(v->fOffset, "unsupported parameter type");
+        {
+            AutoOutputStream streamToBuffer(this, &buffer);
+            const FunctionDeclaration& decl = f.declaration();
+            if (!type_to_grsltype(fContext, decl.returnType(), &result.fReturnType)) {
+                fErrors.error(f.fOffset, "unsupported return type");
                 return;
             }
-            result.fParameters.emplace_back(v->name(), paramSLType);
+            result.fName = decl.name();
+            for (const Variable* v : decl.parameters()) {
+                GrSLType paramSLType;
+                if (!type_to_grsltype(fContext, v->type(), &paramSLType)) {
+                    fErrors.error(v->fOffset, "unsupported parameter type");
+                    return;
+                }
+                GrShaderVar::TypeModifier typeModifier = GrShaderVar::TypeModifier::None;
+                switch (v->modifiers().fFlags & (Modifiers::kIn_Flag | Modifiers::kOut_Flag)) {
+                    case Modifiers::kOut_Flag:
+                        typeModifier = GrShaderVar::TypeModifier::Out;
+                        break;
+                    case Modifiers::kIn_Flag | Modifiers::kOut_Flag:
+                        typeModifier = GrShaderVar::TypeModifier::InOut;
+                        break;
+                    default:
+                        break;
+                }
+                result.fParameters.emplace_back(v->name(), paramSLType, typeModifier);
+            }
+            for (const std::unique_ptr<Statement>& stmt : f.body()->as<Block>().children()) {
+                this->writeStatement(*stmt);
+                this->writeLine();
+            }
         }
-        for (const std::unique_ptr<Statement>& stmt : f.body()->as<Block>().children()) {
-            this->writeStatement(*stmt);
-            this->writeLine();
-        }
-        fOut = oldOut;
         result.fBody = buffer.str();
         result.fFormatArgs = std::move(fArgs->fFormatArgs);
-        fArgs->fFunctions.push_back(result);
+        fArgs->fFunctions.push_back(std::move(result));
     }
 }
 

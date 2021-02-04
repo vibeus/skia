@@ -9,6 +9,7 @@
 
 #include "src/core/SkArenaAlloc.h"
 #include "src/core/SkBitmapProcState.h"
+#include "src/core/SkPaintPriv.h"
 #include "src/core/SkXfermodePriv.h"
 
 class BitmapProcShaderContext : public SkShaderBase::Context {
@@ -85,7 +86,8 @@ SkShaderBase::Context* SkBitmapProcLegacyShader::MakeContext(
     }
 
     SkBitmapProcState* state = alloc->make<SkBitmapProcState>(image, tmx, tmy);
-    if (!state->setup(totalInverse, *rec.fPaint)) {
+    if (!state->setup(totalInverse, rec.fPaint->getColor(),
+                      SkSamplingOptions(SkPaintPriv::GetFQ(*rec.fPaint)))) {
         return nullptr;
     }
     return alloc->make<BitmapProcShaderContext>(shader, rec, state);

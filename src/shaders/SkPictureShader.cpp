@@ -11,6 +11,7 @@
 #include "include/core/SkCanvas.h"
 #include "include/core/SkImage.h"
 #include "src/core/SkArenaAlloc.h"
+#include "src/core/SkImagePriv.h"
 #include "src/core/SkMatrixProvider.h"
 #include "src/core/SkMatrixUtils.h"
 #include "src/core/SkPicturePriv.h"
@@ -184,6 +185,7 @@ sk_sp<SkShader> SkPictureShader::refBitmapShader(const SkMatrix& viewMatrix,
     const SkMatrix m = SkMatrix::Concat(viewMatrix, **localMatrix);
 
     // Use a rotation-invariant scale
+#ifdef SK_SUPPORT_LEGACY_INHERITED_PICTURE_SHADER_FILTER
     SkPoint scale;
     //
     // TODO: replace this with decomposeScale() -- but beware LayoutTest rebaselines!
@@ -195,6 +197,14 @@ sk_sp<SkShader> SkPictureShader::refBitmapShader(const SkMatrix& viewMatrix,
     }
     SkSize scaledSize = SkSize::Make(SkScalarAbs(scale.x() * fTile.width()),
                                      SkScalarAbs(scale.y() * fTile.height()));
+#else
+    SkSize scaledSize;
+    if (!m.decomposeScale(&scaledSize, nullptr)) {
+        scaledSize = {1, 1};
+    }
+    scaledSize.fWidth  *= fTile.width();
+    scaledSize.fHeight *= fTile.height();
+#endif
 
     // Clamp the tile size to about 4M pixels
     static const SkScalar kMaxTileArea = 2048 * 2048;
@@ -217,7 +227,7 @@ sk_sp<SkShader> SkPictureShader::refBitmapShader(const SkMatrix& viewMatrix,
 
     const SkISize tileSize = scaledSize.toCeil();
     if (tileSize.isEmpty()) {
-        return SkShaders::Empty();
+        return nullptr;
     }
 
     // The actual scale, compensating for rounding & clamping.
@@ -244,7 +254,19 @@ sk_sp<SkShader> SkPictureShader::refBitmapShader(const SkMatrix& viewMatrix,
             return nullptr;
         }
 
-        tileShader = tileImage->makeShader(fTmx, fTmy);
+#ifdef SK_SUPPORT_LEGACY_INHERITED_PICTURE_SHADER_FILTER
+        tileShader = SkImage_makeShaderImplicitFilterQuality(tileImage.get(), fTmx, fTmy, nullptr);
+#else
+
+#ifdef SK_SUPPORT_NEAREST_PICTURESHADER_POSTFILTER
+        SkFilterMode filter = SkFilterMode::kNearest;
+#else
+        SkFilterMode filter = SkFilterMode::kLinear;
+#endif
+        tileShader = tileImage->makeShader(fTmx, fTmy,
+                                           SkSamplingOptions(filter, SkMipmapMode::kNone),
+                                           nullptr);
+#endif
 
         SkResourceCache::Add(new BitmapShaderRec(key, tileShader.get()));
         fAddedToCache.store(true);
@@ -364,7 +386,7 @@ std::unique_ptr<GrFragmentProcessor> SkPictureShader::asFragmentProcessor(
     }
 
     // We want to *reset* args.fPreLocalMatrix, not compose it.
-    GrFPArgs newArgs(args.fContext, args.fMatrixProvider, args.fFilterQuality, args.fDstColorInfo);
+    GrFPArgs newArgs(args.fContext, args.fMatrixProvider, args.fSampling, args.fDstColorInfo);
     newArgs.fPreLocalMatrix = lm.get();
 
     return as_SB(bitmapShader)->asFragmentProcessor(newArgs);

@@ -653,23 +653,12 @@ CanvasKit.onRuntimeInitialized = function() {
     return this;
   };
 
-  // points is either an array of [x, y] where x and y are numbers or
-  // a typed array from Malloc where the even indices will be treated
-  // as x coordinates and the odd indices will be treated as y coordinates.
+  // points is a 1d array of length 2n representing n points where the even indices
+  // will be treated as x coordinates and the odd indices will be treated as y coordinates.
+  // Like other APIs, this accepts a malloced type array or malloc obj.
   CanvasKit.Path.prototype.addPoly = function(points, close) {
-    var ptr;
-    var n;
-    // This was created with CanvasKit.Malloc, so assume the user has
-    // already been filled with data.
-    if (points['_ck']) {
-      ptr = points.byteOffset;
-      n = points.length/2;
-    } else {
-      // TODO(kjlubick) deprecate and remove the 2d array input
-      ptr = copy2dArray(points, 'HEAPF32');
-      n = points.length;
-    }
-    this._addPoly(ptr, n, close);
+    var ptr = copy1dArray(points, 'HEAPF32');
+    this._addPoly(ptr, points.length / 2, close);
     freeArraysThatAreNotMallocedByUsers(ptr, points);
     return this;
   };
@@ -915,9 +904,26 @@ CanvasKit.onRuntimeInitialized = function() {
     throw 'encodeToData expected to take 0 or 2 arguments. Got ' + arguments.length;
   };
 
-  CanvasKit.Image.prototype.makeShader = function(xTileMode, yTileMode, localMatrix) {
+  // makeShaderCubic returns a shader for a given image, allowing it to be used on
+  // a paint as well as other purposes. This shader will be higher quality than
+  // other shader functions. See CubicResampler in SkSamplingOptions.h for more information
+  // on the cubicResampler params.
+  CanvasKit.Image.prototype.makeShaderCubic = function(xTileMode, yTileMode,
+                                                       cubicResamplerB, cubicResamplerC,
+                                                       localMatrix) {
     var localMatrixPtr = copy3x3MatrixToWasm(localMatrix);
-    return this._makeShader(xTileMode, yTileMode, localMatrixPtr);
+    return this._makeShaderCubic(xTileMode, yTileMode, cubicResamplerB,
+                                 cubicResamplerC, localMatrixPtr);
+  };
+
+  // makeShaderCubic returns a shader for a given image, allowing it to be used on
+  // a paint as well as other purposes. This shader will draw more quickly than
+  // other shader functions, but at a lower quality.
+  CanvasKit.Image.prototype.makeShaderOptions = function(xTileMode, yTileMode,
+                                                         filterMode, mipmapMode,
+                                                         localMatrix) {
+    var localMatrixPtr = copy3x3MatrixToWasm(localMatrix);
+    return this._makeShaderOptions(xTileMode, yTileMode, filterMode, mipmapMode, localMatrixPtr);
   };
 
   function readPixels(source, srcX, srcY, imageInfo, destMallocObj, bytesPerRow) {
@@ -1095,10 +1101,10 @@ CanvasKit.onRuntimeInitialized = function() {
     this._drawDRRect(oPtr, iPtr, paint);
   };
 
-  CanvasKit.Canvas.prototype.drawImageNine = function(img, center, dest, paint) {
+  CanvasKit.Canvas.prototype.drawImageNine = function(img, center, dest, filter, paint) {
     var cPtr = copyIRectToWasm(center);
     var dPtr = copyRectToWasm(dest);
-    this._drawImageNine(img, cPtr, dPtr, paint);
+    this._drawImageNine(img, cPtr, dPtr, filter, paint || null);
   };
 
   CanvasKit.Canvas.prototype.drawImageRect = function(img, src, dest, paint, fastSample) {
@@ -1107,27 +1113,29 @@ CanvasKit.onRuntimeInitialized = function() {
     this._drawImageRect(img, sPtr, dPtr, paint, !!fastSample);
   };
 
+  CanvasKit.Canvas.prototype.drawImageRectCubic = function(img, src, dest, B, C, paint) {
+    var sPtr = copyRectToWasm(src,  _scratchRectPtr);
+    var dPtr = copyRectToWasm(dest, _scratchRect2Ptr);
+    this._drawImageRectCubic(img, sPtr, dPtr, B, C, paint || null);
+  };
+
+  CanvasKit.Canvas.prototype.drawImageRectOptions = function(img, src, dest, filter, mipmap, paint) {
+    var sPtr = copyRectToWasm(src,  _scratchRectPtr);
+    var dPtr = copyRectToWasm(dest, _scratchRect2Ptr);
+    this._drawImageRectOptions(img, sPtr, dPtr, filter, mipmap, paint || null);
+  };
+
   CanvasKit.Canvas.prototype.drawOval = function(oval, paint) {
     var oPtr = copyRectToWasm(oval);
     this._drawOval(oPtr, paint);
   };
 
-  // points is either an array of [x, y] where x and y are numbers or
-  // a typed array from Malloc where the even indices will be treated
-  // as x coordinates and the odd indices will be treated as y coordinates.
+  // points is a 1d array of length 2n representing n points where the even indices
+  // will be treated as x coordinates and the odd indices will be treated as y coordinates.
+  // Like other APIs, this accepts a malloced type array or malloc obj.
   CanvasKit.Canvas.prototype.drawPoints = function(mode, points, paint) {
-    var ptr;
-    var n;
-    // This was created with CanvasKit.Malloc, so assume the user has
-    // already been filled with data.
-    if (points['_ck']) {
-      ptr = points.byteOffset;
-      n = points.length/2;
-    } else {
-      ptr = copy2dArray(points, 'HEAPF32');
-      n = points.length;
-    }
-    this._drawPoints(mode, ptr, n, paint);
+    var ptr = copy1dArray(points, 'HEAPF32');
+    this._drawPoints(mode, ptr, points.length / 2, paint);
     freeArraysThatAreNotMallocedByUsers(ptr, points);
   };
 
@@ -1141,12 +1149,29 @@ CanvasKit.onRuntimeInitialized = function() {
     this._drawRect(rPtr, paint);
   };
 
-  CanvasKit.Canvas.prototype.drawShadow = function(path, zPlaneParams, lightPos, lightRadius, ambientColor, spotColor, flags) {
+  CanvasKit.Canvas.prototype.drawShadow = function(path, zPlaneParams, lightPos, lightRadius,
+                                                   ambientColor, spotColor, flags) {
     var ambiPtr = copyColorToWasmNoScratch(ambientColor);
     var spotPtr = copyColorToWasmNoScratch(spotColor);
     this._drawShadow(path, zPlaneParams, lightPos, lightRadius, ambiPtr, spotPtr, flags);
     freeArraysThatAreNotMallocedByUsers(ambiPtr, ambientColor);
     freeArraysThatAreNotMallocedByUsers(spotPtr, spotColor);
+  };
+
+  CanvasKit.getShadowLocalBounds = function(ctm, path, zPlaneParams, lightPos, lightRadius,
+                                            flags, optOutputRect) {
+    var ctmPtr = copy3x3MatrixToWasm(ctm);
+    var ok = this._getShadowLocalBounds(ctmPtr, path, zPlaneParams, lightPos, lightRadius,
+                                        flags, _scratchRectPtr);
+    if (!ok) {
+      return null;
+    }
+    var ta = _scratchRect['toTypedArray']();
+    if (optOutputRect) {
+      optOutputRect.set(ta);
+      return optOutputRect;
+    }
+    return ta.slice();
   };
 
   // getLocalToDevice returns a 4x4 matrix.
@@ -1522,42 +1547,33 @@ CanvasKit.MakeImageFromCanvasImageSource = function(canvasImageSource) {
 
   var imageData = ctx2d.getImageData(0, 0, width, height);
 
-  return CanvasKit.MakeImage(
-    imageData.data,
-    width,
-    height,
-    CanvasKit.AlphaType.Unpremul,
-    CanvasKit.ColorType.RGBA_8888,
-    CanvasKit.ColorSpace.SRGB
-  );
+  return CanvasKit.MakeImage({
+      'width': width,
+      'height': height,
+      'alphaType': CanvasKit.AlphaType.Unpremul,
+      'colorType': CanvasKit.ColorType.RGBA_8888,
+      'colorSpace': CanvasKit.ColorSpace.SRGB
+    }, imageData.data, 4 * width);
 };
 
-// pixels may be any Typed Array, but Uint8Array or Uint8ClampedArray is recommended,
-// with bytes representing the pixel values.
+// pixels may be an array but Uint8Array or Uint8ClampedArray is recommended,
+// with the bytes representing the pixel values.
 // (e.g. each set of 4 bytes could represent RGBA values for a single pixel).
-CanvasKit.MakeImage = function(pixels, width, height, alphaType, colorType, colorSpace) {
-  var bytesPerPixel = pixels.length / (width * height);
-  var info = {
-    'width': width,
-    'height': height,
-    'alphaType': alphaType,
-    'colorType': colorType,
-    'colorSpace': colorSpace,
-  };
-  var pptr = copy1dArray(pixels, 'HEAPU8');
+CanvasKit.MakeImage = function(info, pixels, bytesPerRow) {
+  var pptr = CanvasKit._malloc(pixels.length);
+  CanvasKit.HEAPU8.set(pixels, pptr); // We always want to copy the bytes into the WASM heap.
   // No need to _free pptr, Image takes it with SkData::MakeFromMalloc
-
-  return CanvasKit._MakeImage(info, pptr, pixels.length, width * bytesPerPixel);
+  return CanvasKit._MakeImage(info, pptr, pixels.length, bytesPerRow);
 };
 
 // Colors may be a Uint32Array of int colors, a Flat Float32Array of float colors
 // or a 2d Array of Float32Array(4) (deprecated)
-// the underlying skia function accepts only int colors so it is recommended
+// the underlying Skia function accepts only int colors so it is recommended
 // to pass an array of int colors to avoid an extra conversion.
 // ColorBuilder is not accepted.
 CanvasKit.MakeVertices = function(mode, positions, textureCoordinates, colors,
                                   indices, isVolatile) {
-  // Default isVolitile to true if not set
+  // Default isVolatile to true if not set
   isVolatile = isVolatile === undefined ? true : isVolatile;
   var idxCount = (indices && indices.length) || 0;
 
@@ -1573,11 +1589,11 @@ CanvasKit.MakeVertices = function(mode, positions, textureCoordinates, colors,
     flags |= (1 << 2);
   }
 
-  var builder = new CanvasKit._VerticesBuilder(mode, positions.length, idxCount, flags);
+  var builder = new CanvasKit._VerticesBuilder(mode, positions.length / 2, idxCount, flags);
 
-  copy2dArray(positions,            'HEAPF32', builder.positions());
+  copy1dArray(positions, 'HEAPF32', builder.positions());
   if (builder.texCoords()) {
-    copy2dArray(textureCoordinates, 'HEAPF32', builder.texCoords());
+    copy1dArray(textureCoordinates, 'HEAPF32', builder.texCoords());
   }
   if (builder.colors()) {
     if (colors.build) {

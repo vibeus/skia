@@ -202,6 +202,12 @@ void ParagraphImpl::layout(SkScalar rawWidth) {
         fMinIntrinsicWidth = fMaxIntrinsicWidth;
     }
 
+    // TODO: Since min and max are calculated differently it's possible to get a rounding error
+    //  that would make min > max. Sort it out later, make it the same for now
+    if (fMaxIntrinsicWidth < fMinIntrinsicWidth) {
+        fMaxIntrinsicWidth = fMinIntrinsicWidth;
+    }
+
     //SkDebugf("layout('%s', %f): %f %f\n", fText.c_str(), rawWidth, fMinIntrinsicWidth, fMaxIntrinsicWidth);
 }
 
@@ -293,6 +299,11 @@ bool ParagraphImpl::computeCodeUnitProperties() {
 
 // Clusters in the order of the input text
 void ParagraphImpl::buildClusterTable() {
+    int cluster_count = 1;
+    for (auto& run : fRuns) {
+        cluster_count += run.isPlaceholder() ? 1 : run.size();
+    }
+    fClusters.reserve_back(cluster_count);
 
     // Walk through all the run in the direction of input text
     for (auto& run : fRuns) {
@@ -308,7 +319,6 @@ void ParagraphImpl::buildClusterTable() {
             fCodeUnitProperties[run.textRange().start] |= CodeUnitFlags::kSoftLineBreakBefore;
             fCodeUnitProperties[run.textRange().end] |= CodeUnitFlags::kSoftLineBreakBefore;
         } else {
-            fClusters.reserve_back(fClusters.size() + run.size());
             // Walk through the glyph in the direction of input text
             run.iterateThroughClustersInTextOrder([runIndex, this](size_t glyphStart,
                                                                    size_t glyphEnd,
@@ -441,27 +451,6 @@ void ParagraphImpl::breakShapedTextIntoLines(SkScalar maxWidth) {
     fAlphabeticBaseline = fLines.empty() ? fEmptyMetrics.alphabeticBaseline() : fLines.front().alphabeticBaseline();
     fIdeographicBaseline = fLines.empty() ? fEmptyMetrics.ideographicBaseline() : fLines.front().ideographicBaseline();
     fExceededMaxLines = textWrapper.exceededMaxLines();
-
-    // Correct the first and the last line ascents/descents if required
-    if ((fParagraphStyle.getTextHeightBehavior() & TextHeightBehavior::kDisableFirstAscent) != 0) {
-        auto& firstLine = fLines.front();
-        auto delta = firstLine.metricsWithoutMultiplier(TextHeightBehavior::kDisableFirstAscent);
-        if (!SkScalarNearlyZero(delta)) {
-            fHeight += delta;
-            // Shift all the lines up
-            for (auto& line : fLines) {
-                if (line.isFirstLine()) continue;
-                line.shiftVertically(delta);
-            }
-        }
-    }
-
-    if ((fParagraphStyle.getTextHeightBehavior() & TextHeightBehavior::kDisableLastDescent) != 0) {
-        auto& lastLine = fLines.back();
-        auto delta = lastLine.metricsWithoutMultiplier(TextHeightBehavior::kDisableLastDescent);
-        // It's the last line. There is nothing below to shift
-        fHeight += delta;
-    }
 }
 
 void ParagraphImpl::formatLines(SkScalar maxWidth) {

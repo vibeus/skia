@@ -40,7 +40,7 @@
 #include <functional>
 #include <utility>
 
-class GrRenderTargetContext;
+class GrSurfaceDrawContext;
 
 static void drawContents(SkSurface* surface, SkColor fillC) {
     SkSize size = SkSize::Make(SkIntToScalar(surface->width()),
@@ -80,12 +80,10 @@ static void test_surface(SkCanvas* canvas, SkSurface* surf, bool usePaint) {
     drawContents(surf, SK_ColorBLUE);
 
     SkPaint paint;
-//    paint.setFilterBitmap(true);
-//    paint.setAlpha(0x80);
 
     canvas->drawImage(imgR, 0, 0, usePaint ? &paint : nullptr);
     canvas->drawImage(imgG, 0, 80, usePaint ? &paint : nullptr);
-    surf->draw(canvas, 0, 160, usePaint ? &paint : nullptr);
+    surf->draw(canvas, 0, 160, SkSamplingOptions(), usePaint ? &paint : nullptr);
 
     SkRect src1, src2, src3;
     src1.setIWH(surf->width(), surf->height());
@@ -204,7 +202,7 @@ static void show_scaled_pixels(SkCanvas* canvas, SkImage* image) {
     for (auto ch : chints) {
         canvas->save();
         for (auto q : qualities) {
-            if (image->scalePixels(storage, q, ch)) {
+            if (image->scalePixels(storage, SkSamplingOptions(q), ch)) {
                 draw_pixmap(canvas, storage);
             }
             canvas->translate(70, 0);
@@ -329,7 +327,7 @@ DEF_SIMPLE_GPU_GM(new_texture_image, context, rtc, canvas, 280, 60) {
     std::function<sk_sp<SkImage>()> imageFactories[] = {
         // Create sw raster image.
         [bmp] {
-            return SkImage::MakeFromBitmap(bmp);
+            return bmp.asImage();
         },
         // Create encoded image.
         [bmp] {
@@ -407,7 +405,7 @@ DEF_SIMPLE_GM(scalepixels_unpremul, canvas, 1080, 280) {
     };
 
     for (auto fq : qualities) {
-        pm.scalePixels(pm2, fq);
+        pm.scalePixels(pm2, SkSamplingOptions(fq));
         slam_ff(pm2);
         draw_pixmap(canvas, pm2, 10, 10);
         canvas->translate(pm2.width() + 10.0f, 0);

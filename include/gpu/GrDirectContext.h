@@ -24,11 +24,12 @@ struct GrD3DBackendContext;
 class GrFragmentProcessor;
 class GrGpu;
 struct GrGLInterface;
+struct GrMtlBackendContext;
 struct GrMockOptions;
 class GrPath;
 class GrResourceCache;
 class GrSmallPathAtlasMgr;
-class GrRenderTargetContext;
+class GrSurfaceDrawContext;
 class GrResourceProvider;
 class GrStrikeCache;
 class GrSurfaceProxy;
@@ -70,9 +71,20 @@ public:
 
 #ifdef SK_METAL
     /**
+     * Makes a GrDirectContext which uses Metal as the backend. The GrMtlBackendContext contains a
+     * MTLDevice and MTLCommandQueue which should be used by the backend. These objects must
+     * have their own ref which will be released when the GrMtlBackendContext is destroyed.
+     * Ganesh will take its own ref on the objects which will be released when the GrDirectContext
+     * is destroyed.
+     */
+    static sk_sp<GrDirectContext> MakeMetal(const GrMtlBackendContext&, const GrContextOptions&);
+    static sk_sp<GrDirectContext> MakeMetal(const GrMtlBackendContext&);
+    /**
+     * Deprecated.
+     *
      * Makes a GrDirectContext which uses Metal as the backend. The device parameter is an
      * MTLDevice and queue is an MTLCommandQueue which should be used by the backend. These objects
-     * must have a ref on them which can be transferred to Ganesh which will release the ref
+     * must have a ref on them that can be transferred to Ganesh, which will release the ref
      * when the GrDirectContext is destroyed.
      */
     static sk_sp<GrDirectContext> MakeMetal(void* device, void* queue, const GrContextOptions&);
@@ -494,25 +506,60 @@ public:
       * If numLevels is 1 a non-mipMapped texture will result. If a mipMapped texture is desired
       * the data for all the mipmap levels must be provided. In the mipmapped case all the
       * colortypes of the provided pixmaps must be the same. Additionally, all the miplevels
-      * must be sized correctly (please see SkMipmap::ComputeLevelSize and ComputeLevelCount).
+      * must be sized correctly (please see SkMipmap::ComputeLevelSize and ComputeLevelCount). The
+      * GrSurfaceOrigin controls whether the pixmap data is vertically flipped in the texture.
       * Note: the pixmap's alphatypes and colorspaces are ignored.
       * For the Vulkan backend the layout of the created VkImage will be:
       *      VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL
       */
-     GrBackendTexture createBackendTexture(const SkPixmap srcData[], int numLevels,
-                                           GrRenderable, GrProtected,
+     GrBackendTexture createBackendTexture(const SkPixmap srcData[],
+                                           int numLevels,
+                                           GrSurfaceOrigin,
+                                           GrRenderable,
+                                           GrProtected,
                                            GrGpuFinishedProc finishedProc = nullptr,
                                            GrGpuFinishedContext finishedContext = nullptr);
 
-     // Helper version of above for a single level.
+    /**
+     * Convenience version createBackendTexture() that takes just a base level pixmap.
+     */
      GrBackendTexture createBackendTexture(const SkPixmap& srcData,
+                                           GrSurfaceOrigin textureOrigin,
                                            GrRenderable renderable,
                                            GrProtected isProtected,
                                            GrGpuFinishedProc finishedProc = nullptr,
                                            GrGpuFinishedContext finishedContext = nullptr) {
-         return this->createBackendTexture(&srcData, 1, renderable, isProtected, finishedProc,
-                                           finishedContext);
+         return this->createBackendTexture(&srcData, 1, textureOrigin, renderable, isProtected,
+                                           finishedProc, finishedContext);
      }
+
+    // Deprecated versions that do not take origin and assume top-left.
+    GrBackendTexture createBackendTexture(const SkPixmap srcData[],
+                                          int numLevels,
+                                          GrRenderable renderable,
+                                          GrProtected isProtected,
+                                          GrGpuFinishedProc finishedProc = nullptr,
+                                          GrGpuFinishedContext finishedContext = nullptr) {
+        return this->createBackendTexture(srcData,
+                                          numLevels,
+                                          kTopLeft_GrSurfaceOrigin,
+                                          renderable,
+                                          isProtected,
+                                          finishedProc,
+                                          finishedContext);
+    }
+    GrBackendTexture createBackendTexture(const SkPixmap& srcData,
+                                          GrRenderable renderable,
+                                          GrProtected isProtected,
+                                          GrGpuFinishedProc finishedProc = nullptr,
+                                          GrGpuFinishedContext finishedContext = nullptr) {
+        return this->createBackendTexture(&srcData,
+                                          1,
+                                          renderable,
+                                          isProtected,
+                                          finishedProc,
+                                          finishedContext);
+    }
 
     /**
      * If possible, updates a backend texture to be filled to a particular color. The client should
@@ -557,7 +604,8 @@ public:
      * If the backend texture is mip mapped, the data for all the mipmap levels must be provided.
      * In the mipmapped case all the colortypes of the provided pixmaps must be the same.
      * Additionally, all the miplevels must be sized correctly (please see
-     * SkMipmap::ComputeLevelSize and ComputeLevelCount).
+     * SkMipmap::ComputeLevelSize and ComputeLevelCount). The GrSurfaceOrigin controls whether the
+     * pixmap data is vertically flipped in the texture.
      * Note: the pixmap's alphatypes and colorspaces are ignored.
      * For the Vulkan backend after a successful update the layout of the created VkImage will be:
      *      VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL
@@ -565,8 +613,39 @@ public:
     bool updateBackendTexture(const GrBackendTexture&,
                               const SkPixmap srcData[],
                               int numLevels,
-                              GrGpuFinishedProc finishedProc,
-                              GrGpuFinishedContext finishedContext);
+                              GrSurfaceOrigin = kTopLeft_GrSurfaceOrigin,
+                              GrGpuFinishedProc finishedProc = nullptr,
+                              GrGpuFinishedContext finishedContext = nullptr);
+
+    /**
+     * Convenience version of updateBackendTexture that takes just a base level pixmap.
+     */
+    bool updateBackendTexture(const GrBackendTexture& texture,
+                              const SkPixmap& srcData,
+                              GrSurfaceOrigin textureOrigin = kTopLeft_GrSurfaceOrigin,
+                              GrGpuFinishedProc finishedProc = nullptr,
+                              GrGpuFinishedContext finishedContext = nullptr) {
+        return this->updateBackendTexture(texture,
+                                          &srcData,
+                                          1,
+                                          textureOrigin,
+                                          finishedProc,
+                                          finishedContext);
+    }
+
+    // Deprecated version that does not take origin and assumes top-left.
+    bool updateBackendTexture(const GrBackendTexture& texture,
+                             const SkPixmap srcData[],
+                             int numLevels,
+                             GrGpuFinishedProc finishedProc,
+                             GrGpuFinishedContext finishedContext) {
+        return this->updateBackendTexture(texture,
+                                          srcData,
+                                          numLevels,
+                                          kTopLeft_GrSurfaceOrigin,
+                                          finishedProc,
+                                          finishedContext);
+    }
 
     /**
      * Retrieve the GrBackendFormat for a given SkImage::CompressionType. This is

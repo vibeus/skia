@@ -217,7 +217,12 @@ bool GrVkCaps::onCanCopySurface(const GrSurfaceProxy* dst, const GrSurfaceProxy*
         if (rtProxy->wrapsVkSecondaryCB()) {
             return false;
         }
-        dstSampleCnt = rtProxy->numSamples();
+        if (this->preferDiscardableMSAAAttachment() && dst->asTextureProxy() &&
+            rtProxy->supportsVkInputAttachment()) {
+            dstSampleCnt = 1;
+        } else {
+            dstSampleCnt = rtProxy->numSamples();
+        }
     }
     if (const GrRenderTargetProxy* rtProxy = src->asRenderTargetProxy()) {
         // Copying to or from render targets that wrap a secondary command buffer is not allowed
@@ -226,7 +231,12 @@ bool GrVkCaps::onCanCopySurface(const GrSurfaceProxy* dst, const GrSurfaceProxy*
         if (rtProxy->wrapsVkSecondaryCB()) {
             return false;
         }
-        srcSampleCnt = rtProxy->numSamples();
+        if (this->preferDiscardableMSAAAttachment() && src->asTextureProxy() &&
+            rtProxy->supportsVkInputAttachment()) {
+            srcSampleCnt = 1;
+        } else {
+            srcSampleCnt = rtProxy->numSamples();
+        }
     }
     SkASSERT((dstSampleCnt > 0) == SkToBool(dst->asRenderTargetProxy()));
     SkASSERT((srcSampleCnt > 0) == SkToBool(src->asRenderTargetProxy()));
@@ -385,6 +395,19 @@ void GrVkCaps::init(const GrContextOptions& contextOptions, const GrVkInterface*
         fPreferCachedCpuMemory = false;
     }
 
+    // On desktop GPUs we have found that this does not provide much benefit. The perf results show
+    // a mix of regressions, some improvements, and lots of no changes. Thus it is no worth enabling
+    // this (especially with the rendering artifacts) on desktop.
+    //
+    // On Adreno devices we were expecting to see perf gains. But instead there were actually a lot
+    // of perf regressions and only a few perf wins. This needs some follow up with qualcomm since
+    // we do expect this to be a big win on tilers.
+    //
+    // On ARM devices we are seeing an average perf win of around 50%-60% across the board.
+    if (kARM_VkVendor == properties.vendorID) {
+        fPreferDiscardableMSAAAttachment = true;
+    }
+
     this->initGrCaps(vkInterface, physDev, properties, memoryProperties, features, extensions);
     this->initShaderCaps(properties, features);
 
@@ -412,6 +435,11 @@ void GrVkCaps::init(const GrContextOptions& contextOptions, const GrVkInterface*
     if (kQualcomm_VkVendor == properties.vendorID) {
         // Adreno devices don't support push constants well
         fMaxPushConstantsSize = 0;
+    }
+
+    if (kQualcomm_VkVendor == properties.vendorID) {
+        // Indirect draws seem slow on QC. Disable until we can investigate. http://skbug.com/11139
+        fNativeDrawIndirectSupport = false;
     }
 
     if (kARM_VkVendor == properties.vendorID) {
@@ -483,6 +511,13 @@ void GrVkCaps::applyDriverCorrectnessWorkarounds(const VkPhysicalDevicePropertie
         fPreferPrimaryOverSecondaryCommandBuffers = false;
     }
 
+    // We've seen numerous driver bugs on qualcomm devices running on android P (api 28) or earlier
+    // when trying to using discardable msaa attachments and loading from resolve. So we disable the
+    // feature for those devices.
+    if (properties.vendorID == kQualcomm_VkVendor && androidAPIVersion <= 28) {
+        fPreferDiscardableMSAAAttachment = false;
+    }
+
     // On Mali G series GPUs, applying transfer functions in the fragment shader with half-floats
     // produces answers that are much less accurate than expected/required. This forces full floats
     // for some intermediate values to get acceptable results.
@@ -495,6 +530,13 @@ void GrVkCaps::applyDriverCorrectnessWorkarounds(const VkPhysicalDevicePropertie
     // of bound buffers so that we will rebind them on the next draw.
     if (kQualcomm_VkVendor == properties.vendorID || kAMD_VkVendor == properties.vendorID) {
         fMustInvalidatePrimaryCmdBufferStateAfterClearAttachments = true;
+    }
+
+    // On Qualcomm and Arm the gpu resolves an area larger than the render pass bounds when using
+    // discardable msaa attachments. This causes the resolve to resolve uninitialized data from the
+    // msaa image into the resolve image.
+    if (kQualcomm_VkVendor == properties.vendorID || kARM_VkVendor == properties.vendorID) {
+        fMustLoadFullImageWithDiscardableMSAA = true;
     }
 
     ////////////////////////////////////////////////////////////////////////////
@@ -639,6 +681,13 @@ void GrVkCaps::initGrCaps(const GrVkInterface* vkInterface,
 
     if (kARM_VkVendor == properties.vendorID) {
         fShouldCollapseSrcOverToSrcWhenAble = true;
+    }
+
+    // We're seeing vkCmdClearAttachments take a lot of cpu time when clearing the color attachment.
+    // We really should only be getting in there for partial clears. So instead we will do all
+    // partial clears as draws.
+    if (kQualcomm_VkVendor == properties.vendorID) {
+        fPerformPartialClearsAsDraws = true;
     }
 }
 
@@ -834,8 +883,8 @@ void GrVkCaps::initFormatTable(const GrVkInterface* interface, VkPhysicalDevice 
                 auto& ctInfo = info.fColorTypeInfos[ctIdx++];
                 ctInfo.fColorType = ct;
                 ctInfo.fFlags = ColorTypeInfo::kUploadData_Flag | ColorTypeInfo::kRenderable_Flag;
-                ctInfo.fReadSwizzle = GrSwizzle::RRRR();
-                ctInfo.fWriteSwizzle = GrSwizzle::AAAA();
+                ctInfo.fReadSwizzle = GrSwizzle("000r");
+                ctInfo.fWriteSwizzle = GrSwizzle("a000");
             }
             // Format: VK_FORMAT_R8_UNORM, Surface: kGray_8
             {
@@ -923,8 +972,8 @@ void GrVkCaps::initFormatTable(const GrVkInterface* interface, VkPhysicalDevice 
                 auto& ctInfo = info.fColorTypeInfos[ctIdx++];
                 ctInfo.fColorType = ct;
                 ctInfo.fFlags = ColorTypeInfo::kUploadData_Flag | ColorTypeInfo::kRenderable_Flag;
-                ctInfo.fReadSwizzle = GrSwizzle::RRRR();
-                ctInfo.fWriteSwizzle = GrSwizzle::AAAA();
+                ctInfo.fReadSwizzle = GrSwizzle("000r");
+                ctInfo.fWriteSwizzle = GrSwizzle("a000");
             }
         }
     }
@@ -1072,8 +1121,8 @@ void GrVkCaps::initFormatTable(const GrVkInterface* interface, VkPhysicalDevice 
                 auto& ctInfo = info.fColorTypeInfos[ctIdx++];
                 ctInfo.fColorType = ct;
                 ctInfo.fFlags = ColorTypeInfo::kUploadData_Flag | ColorTypeInfo::kRenderable_Flag;
-                ctInfo.fReadSwizzle = GrSwizzle::RRRR();
-                ctInfo.fWriteSwizzle = GrSwizzle::AAAA();
+                ctInfo.fReadSwizzle = GrSwizzle("000r");
+                ctInfo.fWriteSwizzle = GrSwizzle("a000");
             }
         }
     }
@@ -1607,7 +1656,11 @@ GrSwizzle GrVkCaps::getWriteSwizzle(const GrBackendFormat& format, GrColorType c
 }
 
 GrDstSampleType GrVkCaps::onGetDstSampleTypeForProxy(const GrRenderTargetProxy* rt) const {
-    if (rt->supportsVkInputAttachment()) {
+    bool isMSAAWithResolve = rt->numSamples() > 1 && rt->asTextureProxy();
+    // TODO: Currently if we have an msaa rt with a resolve, the supportsVkInputAttachment call
+    // references whether the resolve is supported as an input attachment. We need to add a check to
+    // allow checking the color attachment (msaa or not) supports input attachment specifically.
+    if (!isMSAAWithResolve && rt->supportsVkInputAttachment()) {
         return GrDstSampleType::kAsInputAttachment;
     }
     return GrDstSampleType::kAsTextureCopy;
@@ -1698,7 +1751,9 @@ void GrVkCaps::addExtraSamplerKey(GrProcessorKeyBuilder* b,
  * each draw  and thus is not included in this descriptor. This includes the viewport, scissor,
  * and blend constant.
  */
-GrProgramDesc GrVkCaps::makeDesc(GrRenderTarget* rt, const GrProgramInfo& programInfo) const {
+GrProgramDesc GrVkCaps::makeDesc(GrRenderTarget* rt,
+                                 const GrProgramInfo& programInfo,
+                                 ProgramDescOverrideFlags overrideFlags) const {
     GrProgramDesc desc;
     if (!GrProgramDesc::Build(&desc, rt, programInfo, *this)) {
         SkASSERT(!desc.isValid());
@@ -1722,12 +1777,28 @@ GrProgramDesc GrVkCaps::makeDesc(GrRenderTarget* rt, const GrProgramInfo& progra
         selfDepFlags |= GrVkRenderPass::SelfDependencyFlags::kForInputAttachment;
     }
 
+    bool needsResolve = programInfo.targetSupportsVkResolveLoad() &&
+                        this->preferDiscardableMSAAAttachment();
+
+    bool forceLoadFromResolve =
+            overrideFlags & GrCaps::ProgramDescOverrideFlags::kVulkanHasResolveLoadSubpass;
+    SkASSERT(!forceLoadFromResolve || needsResolve);
+
+    GrVkRenderPass::LoadFromResolve loadFromResolve = GrVkRenderPass::LoadFromResolve::kNo;
+    if (needsResolve && (programInfo.colorLoadOp() == GrLoadOp::kLoad || forceLoadFromResolve)) {
+        loadFromResolve = GrVkRenderPass::LoadFromResolve::kLoad;
+    }
+
     if (rt) {
         GrVkRenderTarget* vkRT = (GrVkRenderTarget*) rt;
 
+        SkASSERT(!needsResolve ||
+                 (vkRT->resolveAttachmentView() && vkRT->supportsInputAttachmentUsage()));
+
         bool needsStencil = programInfo.numStencilSamples() || programInfo.isStencilEnabled();
         // TODO: support failure in getSimpleRenderPass
-        const GrVkRenderPass* rp = vkRT->getSimpleRenderPass(needsStencil, selfDepFlags);
+        const GrVkRenderPass* rp = vkRT->getSimpleRenderPass(needsResolve, needsStencil,
+                                                             selfDepFlags, loadFromResolve);
         SkASSERT(rp);
         rp->genKey(&b);
 
@@ -1740,7 +1811,8 @@ GrProgramDesc GrVkCaps::makeDesc(GrRenderTarget* rt, const GrProgramInfo& progra
             GrVkRenderTarget::ReconstructAttachmentsDescriptor(*this, programInfo,
                                                                &attachmentsDescriptor,
                                                                &attachmentFlags);
-            SkASSERT(rp->isCompatible(attachmentsDescriptor, attachmentFlags, selfDepFlags));
+            SkASSERT(rp->isCompatible(attachmentsDescriptor, attachmentFlags, selfDepFlags,
+                                      loadFromResolve));
         }
 #endif
     } else {
@@ -1753,7 +1825,8 @@ GrProgramDesc GrVkCaps::makeDesc(GrRenderTarget* rt, const GrProgramInfo& progra
         // kExternal_AttachmentFlag is only set for wrapped secondary command buffers - which
         // will always go through the above 'rt' path (i.e., we can always pass 0 as the final
         // parameter to GenKey).
-        GrVkRenderPass::GenKey(&b, attachmentFlags, attachmentsDescriptor, selfDepFlags, 0);
+        GrVkRenderPass::GenKey(&b, attachmentFlags, attachmentsDescriptor, selfDepFlags,
+                               loadFromResolve, 0);
     }
 
     GrStencilSettings stencil = programInfo.nonGLStencilSettings();

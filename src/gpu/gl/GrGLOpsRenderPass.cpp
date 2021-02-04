@@ -46,7 +46,7 @@ bool GrGLOpsRenderPass::onBindPipeline(const GrProgramInfo& programInfo,
 }
 
 void GrGLOpsRenderPass::onSetScissorRect(const SkIRect& scissor) {
-    fGpu->flushScissorRect(scissor, fRenderTarget->width(), fRenderTarget->height(), fOrigin);
+    fGpu->flushScissorRect(scissor, fRenderTarget->height(), fOrigin);
 }
 
 bool GrGLOpsRenderPass::onBindTextures(const GrPrimitiveProcessor& primProc,
@@ -383,7 +383,7 @@ void GrGLOpsRenderPass::multiDrawElementsANGLEOrWebGL(const GrBuffer* drawIndire
     }
 }
 
-void GrGLOpsRenderPass::onClear(const GrScissorState& scissor, const SkPMColor4f& color) {
+void GrGLOpsRenderPass::onClear(const GrScissorState& scissor, std::array<float, 4> color) {
     fGpu->clear(scissor, color, fRenderTarget, fOrigin);
 }
 

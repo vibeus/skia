@@ -78,6 +78,7 @@ DEF_TEST(Recorder_drawImage_takeReference, reporter) {
         surface->getCanvas()->clear(SK_ColorGREEN);
         image = surface->makeImageSnapshot();
     }
+#ifdef SK_SUPPORT_LEGACY_ONDRAWIMAGERECT
     {
         SkRecord record;
         SkRecorder recorder(&record, 100, 100);
@@ -107,4 +108,46 @@ DEF_TEST(Recorder_drawImage_takeReference, reporter) {
         REPORTER_ASSERT(reporter, 1 == tally.count<SkRecords::DrawImageRect>());
     }
     REPORTER_ASSERT(reporter, image->unique());
+#endif
+
+    {
+        SkRecord record;
+        SkRecorder recorder(&record, 100, 100);
+
+        // DrawImage is supposed to take a reference
+        recorder.drawImage(image.get(), 0, 0, SkSamplingOptions());
+        REPORTER_ASSERT(reporter, !image->unique());
+
+        Tally tally;
+        tally.apply(record);
+
+        REPORTER_ASSERT(reporter, 1 == tally.count<SkRecords::DrawImage2>());
+    }
+    REPORTER_ASSERT(reporter, image->unique());
+
+    {
+        SkRecord record;
+        SkRecorder recorder(&record, 100, 100);
+
+        // DrawImageRect is supposed to take a reference
+        recorder.drawImageRect(image.get(), SkRect::MakeWH(100, 100), SkRect::MakeWH(100, 100),
+                               SkSamplingOptions(), nullptr, SkCanvas::kFast_SrcRectConstraint);
+        REPORTER_ASSERT(reporter, !image->unique());
+
+        Tally tally;
+        tally.apply(record);
+
+        REPORTER_ASSERT(reporter, 1 == tally.count<SkRecords::DrawImageRect2>());
+    }
+    REPORTER_ASSERT(reporter, image->unique());
+}
+
+// skbug.com/10997
+DEF_TEST(Recorder_boundsOverflow, reporter) {
+    SkRect bigBounds = {SK_ScalarMin, SK_ScalarMin, SK_ScalarMax, SK_ScalarMax};
+
+    SkRecord record;
+    SkRecorder recorder(&record, bigBounds);
+    REPORTER_ASSERT(reporter, recorder.imageInfo().width() > 0 &&
+                              recorder.imageInfo().height() > 0);
 }

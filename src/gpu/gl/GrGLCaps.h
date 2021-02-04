@@ -458,7 +458,9 @@ public:
 
     uint64_t computeFormatKey(const GrBackendFormat&) const override;
 
-    GrProgramDesc makeDesc(GrRenderTarget*, const GrProgramInfo&) const override;
+    GrProgramDesc makeDesc(GrRenderTarget*,
+                           const GrProgramInfo&,
+                           ProgramDescOverrideFlags) const override;
 
 #if GR_TEST_UTILS
     GrGLStandard standard() const { return fStandard; }
@@ -483,7 +485,6 @@ private:
         bool fDisableSRGBRenderWithMSAAForMacAMD = false;
         bool fDisableRGBA16FTexStorageForCrBug1008003 = false;
         bool fDisableBGRATextureStorageForIntelWindowsES = false;
-        bool fDisableRGB8ForMali400 = false;
         bool fDisableLuminance16F = false;
         bool fDontDisableTexStorageOnAndroid = false;
         bool fDisallowDirectRG8ReadPixels = false;

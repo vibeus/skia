@@ -177,70 +177,67 @@ bool SkScalerContext::GetGammaLUTData(SkScalar contrast, SkScalar paintGamma, Sk
     return true;
 }
 
-void SkScalerContext::getMetrics(SkGlyph* glyph) {
+SkGlyph SkScalerContext::makeGlyph(SkPackedGlyphID packedID) {
+    return internalMakeGlyph(packedID, fRec.fMaskFormat);
+}
+
+SkGlyph SkScalerContext::internalMakeGlyph(SkPackedGlyphID packedID, SkMask::Format format) {
+    SkGlyph glyph{packedID};
+    glyph.fMaskFormat = format;
     bool generatingImageFromPath = fGenerateImageFromPath;
     if (!generatingImageFromPath) {
-        generateMetrics(glyph);
-        SkASSERT(glyph->fMaskFormat != MASK_FORMAT_UNKNOWN);
+        generateMetrics(&glyph);
     } else {
         SkPath devPath;
-        generatingImageFromPath = this->internalGetPath(glyph->getPackedID(), &devPath);
+        generatingImageFromPath = this->internalGetPath(glyph.getPackedID(), &devPath);
         if (!generatingImageFromPath) {
-            generateMetrics(glyph);
-            SkASSERT(glyph->fMaskFormat != MASK_FORMAT_UNKNOWN);
+            generateMetrics(&glyph);
         } else {
-            uint8_t originMaskFormat = glyph->fMaskFormat;
-            if (!generateAdvance(glyph)) {
-                generateMetrics(glyph);
-            }
-
-            if (originMaskFormat != MASK_FORMAT_UNKNOWN) {
-                glyph->fMaskFormat = originMaskFormat;
-            } else {
-                glyph->fMaskFormat = fRec.fMaskFormat;
+            if (!generateAdvance(&glyph)) {
+                generateMetrics(&glyph);
             }
 
             // If we are going to create the mask, then we cannot keep the color
-            if (SkMask::kARGB32_Format == glyph->fMaskFormat) {
-                glyph->fMaskFormat = SkMask::kA8_Format;
+            if (SkMask::kARGB32_Format == glyph.fMaskFormat) {
+                glyph.fMaskFormat = SkMask::kA8_Format;
             }
 
             const SkIRect ir = devPath.getBounds().roundOut();
             if (ir.isEmpty() || !SkRectPriv::Is16Bit(ir)) {
                 goto SK_ERROR;
             }
-            glyph->fLeft    = ir.fLeft;
-            glyph->fTop     = ir.fTop;
-            glyph->fWidth   = SkToU16(ir.width());
-            glyph->fHeight  = SkToU16(ir.height());
+            glyph.fLeft    = ir.fLeft;
+            glyph.fTop     = ir.fTop;
+            glyph.fWidth   = SkToU16(ir.width());
+            glyph.fHeight  = SkToU16(ir.height());
 
             const bool a8FromLCD = fRec.fFlags & SkScalerContext::kGenA8FromLCD_Flag;
-            const bool fromLCD = (glyph->fMaskFormat == SkMask::kLCD16_Format) ||
-                                 (glyph->fMaskFormat == SkMask::kA8_Format && a8FromLCD);
-            if (0 < glyph->fWidth && fromLCD) {
+            const bool fromLCD = (glyph.fMaskFormat == SkMask::kLCD16_Format) ||
+                                 (glyph.fMaskFormat == SkMask::kA8_Format && a8FromLCD);
+            if (0 < glyph.fWidth && fromLCD) {
                 if (fRec.fFlags & SkScalerContext::kLCD_Vertical_Flag) {
-                    glyph->fHeight += 2;
-                    glyph->fTop -= 1;
+                    glyph.fHeight += 2;
+                    glyph.fTop -= 1;
                 } else {
-                    glyph->fWidth += 2;
-                    glyph->fLeft -= 1;
+                    glyph.fWidth += 2;
+                    glyph.fLeft -= 1;
                 }
             }
         }
     }
 
     // if either dimension is empty, zap the image bounds of the glyph
-    if (0 == glyph->fWidth || 0 == glyph->fHeight) {
-        glyph->fWidth   = 0;
-        glyph->fHeight  = 0;
-        glyph->fTop     = 0;
-        glyph->fLeft    = 0;
-        glyph->fMaskFormat = 0;
-        return;
+    if (0 == glyph.fWidth || 0 == glyph.fHeight) {
+        glyph.fWidth   = 0;
+        glyph.fHeight  = 0;
+        glyph.fTop     = 0;
+        glyph.fLeft    = 0;
+        glyph.fMaskFormat = SkMask::kBW_Format;
+        return glyph;
     }
 
     if (fMaskFilter) {
-        SkMask      src = glyph->mask(),
+        SkMask      src = glyph.mask(),
                     dst;
         SkMatrix    matrix;
 
@@ -252,24 +249,23 @@ void SkScalerContext::getMetrics(SkGlyph* glyph) {
                 goto SK_ERROR;
             }
             SkASSERT(dst.fImage == nullptr);
-            glyph->fLeft    = dst.fBounds.fLeft;
-            glyph->fTop     = dst.fBounds.fTop;
-            glyph->fWidth   = SkToU16(dst.fBounds.width());
-            glyph->fHeight  = SkToU16(dst.fBounds.height());
-            glyph->fMaskFormat = dst.fFormat;
+            glyph.fLeft    = dst.fBounds.fLeft;
+            glyph.fTop     = dst.fBounds.fTop;
+            glyph.fWidth   = SkToU16(dst.fBounds.width());
+            glyph.fHeight  = SkToU16(dst.fBounds.height());
+            glyph.fMaskFormat = dst.fFormat;
         }
     }
-    return;
+    return glyph;
 
 SK_ERROR:
     // draw nothing 'cause we failed
-    glyph->fLeft     = 0;
-    glyph->fTop      = 0;
-    glyph->fWidth    = 0;
-    glyph->fHeight   = 0;
-    // put a valid value here, in case it was earlier set to
-    // MASK_FORMAT_JUST_ADVANCE
-    glyph->fMaskFormat = fRec.fMaskFormat;
+    glyph.fLeft     = 0;
+    glyph.fTop      = 0;
+    glyph.fWidth    = 0;
+    glyph.fHeight   = 0;
+    glyph.fMaskFormat = fRec.fMaskFormat;
+    return glyph;
 }
 
 #define SK_SHOW_TEXT_BLIT_COVERAGE 0
@@ -533,17 +529,15 @@ static void generateMask(const SkMask& mask, const SkPath& path,
 
 void SkScalerContext::getImage(const SkGlyph& origGlyph) {
     const SkGlyph*  glyph = &origGlyph;
-    SkGlyph  tmpGlyph{origGlyph.getPackedID()};
-
     // in case we need to call generateImage on a mask-format that is different
     // (i.e. larger) than what our caller allocated by looking at origGlyph.
     SkAutoMalloc tmpGlyphImageStorage;
-
+    SkGlyph tmpGlyph;
     if (fMaskFilter) {   // restore the prefilter bounds
 
         // need the original bounds, sans our maskfilter
         sk_sp<SkMaskFilter> mf = std::move(fMaskFilter);
-        this->getMetrics(&tmpGlyph);
+        tmpGlyph = this->internalMakeGlyph(origGlyph.getPackedID(), fRec.fMaskFormat);
         fMaskFilter = std::move(mf);
 
         // we need the prefilter bounds to be <= filter bounds
@@ -864,15 +858,6 @@ void SkScalerContextRec::setLuminanceColor(SkColor c) {
             SkColorSetRGB(SkColorGetR(c), SkColorGetG(c), SkColorGetB(c)));
 }
 
-extern SkScalerContext* SkCreateColorScalerContext(const SkDescriptor* desc);
-
-std::unique_ptr<SkScalerContext> SkTypeface::createScalerContext(
-        const SkScalerContextEffects& effects, const SkDescriptor* desc) const {
-    auto answer = std::unique_ptr<SkScalerContext>{this->onCreateScalerContext(effects, desc)};
-    SkASSERT(answer != nullptr);
-    return answer;
-}
-
 /*
  *  Return the scalar with only limited fractional precision. Used to consolidate matrices
  *  that vary only slightly when we create our key into the font cache, since the font scaler
@@ -992,7 +977,7 @@ void SkScalerContext::MakeRecAndEffects(const SkFont& font, const SkPaint& paint
         rec->fStrokeCap = 0;
     }
 
-    rec->fMaskFormat = SkToU8(compute_mask_format(font));
+    rec->fMaskFormat = compute_mask_format(font);
 
     if (SkMask::kLCD16_Format == rec->fMaskFormat) {
         if (too_big_for_lcd(*rec, checkPost2x2)) {
@@ -1072,16 +1057,6 @@ void SkScalerContext::MakeRecAndEffects(const SkFont& font, const SkPaint& paint
     new (effects) SkScalerContextEffects{paint};
 }
 
-SkDescriptor* SkScalerContext::MakeDescriptorForPaths(SkFontID typefaceID,
-                                                      SkAutoDescriptor* ad) {
-    SkScalerContextRec rec;
-    memset((void*)&rec, 0, sizeof(rec));
-    rec.fFontID = typefaceID;
-    rec.fTextSize = SkFontPriv::kCanonicalTextSizeForPaths;
-    rec.fPreScaleX = rec.fPost2x2[0][0] = rec.fPost2x2[1][1] = SK_Scalar1;
-    return AutoDescriptorGivenRecAndEffects(rec, SkScalerContextEffects(), ad);
-}
-
 SkDescriptor* SkScalerContext::CreateDescriptorAndEffectsUsingPaint(
     const SkFont& font, const SkPaint& paint, const SkSurfaceProps& surfaceProps,
     SkScalerContextFlags scalerContextFlags, const SkMatrix& deviceMatrix, SkAutoDescriptor* ad,
@@ -1159,7 +1134,7 @@ bool SkScalerContext::CheckBufferSizeForRec(const SkScalerContextRec& rec,
     return size >= calculate_size_and_flatten(rec, effects, &buf);
 }
 
-SkScalerContext* SkScalerContext::MakeEmptyContext(
+std::unique_ptr<SkScalerContext> SkScalerContext::MakeEmpty(
         sk_sp<SkTypeface> typeface, const SkScalerContextEffects& effects,
         const SkDescriptor* desc) {
     class SkScalerContext_Empty : public SkScalerContext {
@@ -1169,9 +1144,6 @@ SkScalerContext* SkScalerContext::MakeEmptyContext(
                 : SkScalerContext(std::move(typeface), effects, desc) {}
 
     protected:
-        unsigned generateGlyphCount() override {
-            return 0;
-        }
         bool generateAdvance(SkGlyph* glyph) override {
             glyph->zeroMetrics();
             return true;
@@ -1192,7 +1164,7 @@ SkScalerContext* SkScalerContext::MakeEmptyContext(
         }
     };
 
-    return new SkScalerContext_Empty{std::move(typeface), effects, desc};
+    return std::make_unique<SkScalerContext_Empty>(std::move(typeface), effects, desc);
 }
 
 

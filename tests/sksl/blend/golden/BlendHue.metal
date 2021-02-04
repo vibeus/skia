@@ -8,99 +8,47 @@ struct Inputs {
 struct Outputs {
     float4 sk_FragColor [[color(0)]];
 };
+float3 _blend_set_color_saturation_helper(float3 minMidMax, float sat) {
+    return minMidMax.x < minMidMax.z ? float3(0.0, (sat * (minMidMax.y - minMidMax.x)) / (minMidMax.z - minMidMax.x), sat) : float3(0.0);
+}
 
 
 fragment Outputs fragmentMain(Inputs _in [[stage_in]], bool _frontFacing [[front_facing]], float4 _fragCoord [[position]]) {
     Outputs _outputStruct;
     thread Outputs* _out = &_outputStruct;
-    float4 _0_blend_hue;
-    {
-        float _1_alpha = _in.dst.w * _in.src.w;
-        float3 _2_sda = _in.src.xyz * _in.dst.w;
-        float3 _3_dsa = _in.dst.xyz * _in.src.w;
-        float3 _13_blend_set_color_saturation;
-        float3 _14_hueLumColor = _2_sda;
-        {
-            float _16_blend_color_saturation;
-            {
-                _16_blend_color_saturation = max(max(_3_dsa.x, _3_dsa.y), _3_dsa.z) - min(min(_3_dsa.x, _3_dsa.y), _3_dsa.z);
-            }
-            float _15_sat = _16_blend_color_saturation;
+    float _1_alpha = _in.dst.w * _in.src.w;
+    float3 _2_sda = _in.src.xyz * _in.dst.w;
+    float3 _3_dsa = _in.dst.xyz * _in.src.w;
+    float3 _4_blend_set_color_saturation;
+    float _5_sat = max(max(_3_dsa.x, _3_dsa.y), _3_dsa.z) - min(min(_3_dsa.x, _3_dsa.y), _3_dsa.z);
 
-            if (_14_hueLumColor.x <= _14_hueLumColor.y) {
-                if (_14_hueLumColor.y <= _14_hueLumColor.z) {
-                    float3 _17_blend_set_color_saturation_helper;
-                    {
-                        _17_blend_set_color_saturation_helper = _14_hueLumColor.x < _14_hueLumColor.z ? float3(0.0, (_15_sat * (_14_hueLumColor.y - _14_hueLumColor.x)) / (_14_hueLumColor.z - _14_hueLumColor.x), _15_sat) : float3(0.0);
-                    }
-                    _14_hueLumColor.xyz = _17_blend_set_color_saturation_helper;
-
-                } else if (_14_hueLumColor.x <= _14_hueLumColor.z) {
-                    float3 _18_blend_set_color_saturation_helper;
-                    {
-                        _18_blend_set_color_saturation_helper = _14_hueLumColor.x < _14_hueLumColor.y ? float3(0.0, (_15_sat * (_14_hueLumColor.z - _14_hueLumColor.x)) / (_14_hueLumColor.y - _14_hueLumColor.x), _15_sat) : float3(0.0);
-                    }
-                    _14_hueLumColor.xzy = _18_blend_set_color_saturation_helper;
-
-                } else {
-                    float3 _19_blend_set_color_saturation_helper;
-                    {
-                        _19_blend_set_color_saturation_helper = _14_hueLumColor.z < _14_hueLumColor.y ? float3(0.0, (_15_sat * (_14_hueLumColor.x - _14_hueLumColor.z)) / (_14_hueLumColor.y - _14_hueLumColor.z), _15_sat) : float3(0.0);
-                    }
-                    _14_hueLumColor.zxy = _19_blend_set_color_saturation_helper;
-
-                }
-            } else if (_14_hueLumColor.x <= _14_hueLumColor.z) {
-                float3 _20_blend_set_color_saturation_helper;
-                {
-                    _20_blend_set_color_saturation_helper = _14_hueLumColor.y < _14_hueLumColor.z ? float3(0.0, (_15_sat * (_14_hueLumColor.x - _14_hueLumColor.y)) / (_14_hueLumColor.z - _14_hueLumColor.y), _15_sat) : float3(0.0);
-                }
-                _14_hueLumColor.yxz = _20_blend_set_color_saturation_helper;
-
-            } else if (_14_hueLumColor.y <= _14_hueLumColor.z) {
-                float3 _21_blend_set_color_saturation_helper;
-                {
-                    _21_blend_set_color_saturation_helper = _14_hueLumColor.y < _14_hueLumColor.x ? float3(0.0, (_15_sat * (_14_hueLumColor.z - _14_hueLumColor.y)) / (_14_hueLumColor.x - _14_hueLumColor.y), _15_sat) : float3(0.0);
-                }
-                _14_hueLumColor.yzx = _21_blend_set_color_saturation_helper;
-
-            } else {
-                float3 _22_blend_set_color_saturation_helper;
-                {
-                    _22_blend_set_color_saturation_helper = _14_hueLumColor.z < _14_hueLumColor.x ? float3(0.0, (_15_sat * (_14_hueLumColor.y - _14_hueLumColor.z)) / (_14_hueLumColor.x - _14_hueLumColor.z), _15_sat) : float3(0.0);
-                }
-                _14_hueLumColor.zyx = _22_blend_set_color_saturation_helper;
-
-            }
-            _13_blend_set_color_saturation = _14_hueLumColor;
+    if (_2_sda.x <= _2_sda.y) {
+        if (_2_sda.y <= _2_sda.z) {
+            _4_blend_set_color_saturation = _blend_set_color_saturation_helper(_2_sda, _5_sat);
+        } else if (_2_sda.x <= _2_sda.z) {
+            _4_blend_set_color_saturation = _blend_set_color_saturation_helper(_2_sda.xzy, _5_sat).xzy;
+        } else {
+            _4_blend_set_color_saturation = _blend_set_color_saturation_helper(_2_sda.zxy, _5_sat).yzx;
         }
-        float3 _23_blend_set_color_luminance;
-        {
-            float _28_blend_color_luminance;
-            {
-                _28_blend_color_luminance = dot(float3(0.30000001192092896, 0.5899999737739563, 0.10999999940395355), _3_dsa);
-            }
-            float _24_lum = _28_blend_color_luminance;
-
-            float _29_blend_color_luminance;
-            {
-                _29_blend_color_luminance = dot(float3(0.30000001192092896, 0.5899999737739563, 0.10999999940395355), _13_blend_set_color_saturation);
-            }
-            float3 _25_result = (_24_lum - _29_blend_color_luminance) + _13_blend_set_color_saturation;
-
-            float _26_minComp = min(min(_25_result.x, _25_result.y), _25_result.z);
-            float _27_maxComp = max(max(_25_result.x, _25_result.y), _25_result.z);
-            if (_26_minComp < 0.0 && _24_lum != _26_minComp) {
-                _25_result = _24_lum + ((_25_result - _24_lum) * _24_lum) / (_24_lum - _26_minComp);
-            }
-            _23_blend_set_color_luminance = _27_maxComp > _1_alpha && _27_maxComp != _24_lum ? _24_lum + ((_25_result - _24_lum) * (_1_alpha - _24_lum)) / (_27_maxComp - _24_lum) : _25_result;
-        }
-        _0_blend_hue = float4((((_23_blend_set_color_luminance + _in.dst.xyz) - _3_dsa) + _in.src.xyz) - _2_sda, (_in.src.w + _in.dst.w) - _1_alpha);
-
-
+    } else if (_2_sda.x <= _2_sda.z) {
+        _4_blend_set_color_saturation = _blend_set_color_saturation_helper(_2_sda.yxz, _5_sat).yxz;
+    } else if (_2_sda.y <= _2_sda.z) {
+        _4_blend_set_color_saturation = _blend_set_color_saturation_helper(_2_sda.yzx, _5_sat).zxy;
+    } else {
+        _4_blend_set_color_saturation = _blend_set_color_saturation_helper(_2_sda.zyx, _5_sat).zyx;
     }
+    float _7_lum = dot(float3(0.30000001192092896, 0.5899999737739563, 0.10999999940395355), _3_dsa);
 
-    _out->sk_FragColor = _0_blend_hue;
+    float3 _8_result = (_7_lum - dot(float3(0.30000001192092896, 0.5899999737739563, 0.10999999940395355), _4_blend_set_color_saturation)) + _4_blend_set_color_saturation;
+
+    float _9_minComp = min(min(_8_result.x, _8_result.y), _8_result.z);
+    float _10_maxComp = max(max(_8_result.x, _8_result.y), _8_result.z);
+    if (_9_minComp < 0.0 && _7_lum != _9_minComp) {
+        _8_result = _7_lum + ((_8_result - _7_lum) * _7_lum) / (_7_lum - _9_minComp);
+    }
+    _out->sk_FragColor = float4(((((_10_maxComp > _1_alpha && _10_maxComp != _7_lum ? _7_lum + ((_8_result - _7_lum) * (_1_alpha - _7_lum)) / (_10_maxComp - _7_lum) : _8_result) + _in.dst.xyz) - _3_dsa) + _in.src.xyz) - _2_sda, (_in.src.w + _in.dst.w) - _1_alpha);
+
+
 
     return *_out;
 }

@@ -35,14 +35,13 @@
 #include "src/sksl/ir/SkSLNop.h"
 #include "src/sksl/ir/SkSLReturnStatement.h"
 #include "src/sksl/ir/SkSLSwitchStatement.h"
-#include "src/sksl/ir/SkSLWhileStatement.h"
 
 // Expressions
 #include "src/sksl/ir/SkSLBinaryExpression.h"
 #include "src/sksl/ir/SkSLBoolLiteral.h"
 #include "src/sksl/ir/SkSLConstructor.h"
 #include "src/sksl/ir/SkSLExternalFunctionCall.h"
-#include "src/sksl/ir/SkSLExternalValueReference.h"
+#include "src/sksl/ir/SkSLExternalFunctionReference.h"
 #include "src/sksl/ir/SkSLFieldAccess.h"
 #include "src/sksl/ir/SkSLFloatLiteral.h"
 #include "src/sksl/ir/SkSLFunctionCall.h"
@@ -50,7 +49,6 @@
 #include "src/sksl/ir/SkSLIndexExpression.h"
 #include "src/sksl/ir/SkSLInlineMarker.h"
 #include "src/sksl/ir/SkSLIntLiteral.h"
-#include "src/sksl/ir/SkSLNullLiteral.h"
 #include "src/sksl/ir/SkSLPostfixExpression.h"
 #include "src/sksl/ir/SkSLPrefixExpression.h"
 #include "src/sksl/ir/SkSLSetting.h"
@@ -95,9 +93,9 @@ protected:
                 // Determine the type of call at this site, and merge it with the accumulated state
                 const Expression* lastArg = fc.arguments().back().get();
 
-                if (lastArg->type() == *fContext.fFloat2_Type) {
+                if (lastArg->type() == *fContext.fTypes.fFloat2) {
                     fUsage.merge(SampleUsage::Explicit());
-                } else if (lastArg->type() == *fContext.fFloat3x3_Type) {
+                } else if (lastArg->type() == *fContext.fTypes.fFloat3x3) {
                     // Determine the type of matrix for this call site
                     if (lastArg->isConstantOrUniform()) {
                         if (lastArg->kind() == Expression::Kind::kVariableReference ||
@@ -161,17 +159,17 @@ public:
 
     bool visitExpression(const Expression& e) override {
         ++fCount;
-        return (fCount > fLimit) || INHERITED::visitExpression(e);
+        return (fCount >= fLimit) || INHERITED::visitExpression(e);
     }
 
     bool visitProgramElement(const ProgramElement& p) override {
         ++fCount;
-        return (fCount > fLimit) || INHERITED::visitProgramElement(p);
+        return (fCount >= fLimit) || INHERITED::visitProgramElement(p);
     }
 
     bool visitStatement(const Statement& s) override {
         ++fCount;
-        return (fCount > fLimit) || INHERITED::visitStatement(s);
+        return (fCount >= fLimit) || INHERITED::visitStatement(s);
     }
 
 private:
@@ -262,16 +260,16 @@ private:
 // know if the base (`x`) is assignable; the index expression (`1`) doesn't need to be.
 class IsAssignableVisitor {
 public:
-    IsAssignableVisitor(VariableReference** assignableVar, ErrorReporter* errors)
-            : fAssignableVar(assignableVar), fErrors(errors) {
-        if (fAssignableVar) {
-            *fAssignableVar = nullptr;
-        }
-    }
+    IsAssignableVisitor(ErrorReporter* errors) : fErrors(errors) {}
 
-    bool visit(Expression& expr) {
+    bool visit(Expression& expr, Analysis::AssignmentInfo* info) {
+        int oldErrorCount = fErrors->errorCount();
         this->visitExpression(expr);
-        return fErrors->errorCount() == 0;
+        if (info) {
+            info->fAssignedVar = fAssignedVar;
+            info->fIsSwizzled = fIsSwizzled;
+        }
+        return fErrors->errorCount() == oldErrorCount;
     }
 
     void visitExpression(Expression& expr) {
@@ -283,9 +281,9 @@ public:
                                                Modifiers::kVarying_Flag)) {
                     fErrors->error(expr.fOffset,
                                    "cannot modify immutable variable '" + var->name() + "'");
-                } else if (fAssignableVar) {
-                    SkASSERT(*fAssignableVar == nullptr);
-                    *fAssignableVar = &varRef;
+                } else {
+                    SkASSERT(fAssignedVar == nullptr);
+                    fAssignedVar = &varRef;
                 }
                 break;
             }
@@ -295,20 +293,15 @@ public:
 
             case Expression::Kind::kSwizzle: {
                 const Swizzle& swizzle = expr.as<Swizzle>();
+                fIsSwizzled = true;
                 this->checkSwizzleWrite(swizzle);
                 this->visitExpression(*swizzle.base());
                 break;
             }
-            case Expression::Kind::kIndex:
-                this->visitExpression(*expr.as<IndexExpression>().base());
-                break;
-
-            case Expression::Kind::kExternalValue: {
-                const ExternalValue& var = expr.as<ExternalValueReference>().value();
-                if (!var.canWrite()) {
-                    fErrors->error(expr.fOffset,
-                                   "cannot modify immutable external value '" + var.name() + "'");
-                }
+            case Expression::Kind::kIndex: {
+                Expression& inner = *expr.as<IndexExpression>().base();
+                fIsSwizzled |= inner.type().isVector();
+                this->visitExpression(inner);
                 break;
             }
             default:
@@ -332,8 +325,9 @@ private:
         }
     }
 
-    VariableReference** fAssignableVar;
     ErrorReporter* fErrors;
+    VariableReference* fAssignedVar = nullptr;
+    bool fIsSwizzled = false;
 
     using INHERITED = ProgramVisitor;
 };
@@ -361,14 +355,23 @@ bool Analysis::ReferencesFragCoords(const Program& program) {
     return Analysis::ReferencesBuiltin(program, SK_FRAGCOORD_BUILTIN);
 }
 
-bool Analysis::NodeCountExceeds(const FunctionDefinition& function, int limit) {
-    return NodeCountVisitor{limit}.visit(*function.body()) > limit;
+int Analysis::NodeCountUpToLimit(const FunctionDefinition& function, int limit) {
+    return NodeCountVisitor{limit}.visit(*function.body());
 }
 
 std::unique_ptr<ProgramUsage> Analysis::GetUsage(const Program& program) {
     auto usage = std::make_unique<ProgramUsage>();
     ProgramUsageVisitor addRefs(usage.get(), /*delta=*/+1);
     addRefs.visit(program);
+    return usage;
+}
+
+std::unique_ptr<ProgramUsage> Analysis::GetUsage(const LoadedModule& module) {
+    auto usage = std::make_unique<ProgramUsage>();
+    ProgramUsageVisitor addRefs(usage.get(), /*delta=*/+1);
+    for (const auto& element : module.fElements) {
+        addRefs.visitProgramElement(*element);
+    }
     return usage;
 }
 
@@ -433,18 +436,220 @@ bool Analysis::StatementWritesToVariable(const Statement& stmt, const Variable& 
     return VariableWriteVisitor(&var).visit(stmt);
 }
 
-bool Analysis::IsAssignable(Expression& expr, VariableReference** assignableVar,
-                            ErrorReporter* errors) {
+bool Analysis::IsAssignable(Expression& expr, AssignmentInfo* info, ErrorReporter* errors) {
     TrivialErrorReporter trivialErrors;
-    return IsAssignableVisitor{assignableVar, errors ? errors : &trivialErrors}.visit(expr);
+    return IsAssignableVisitor{errors ? errors : &trivialErrors}.visit(expr, info);
+}
+
+bool Analysis::IsTrivialExpression(const Expression& expr) {
+    return expr.is<IntLiteral>() ||
+           expr.is<FloatLiteral>() ||
+           expr.is<BoolLiteral>() ||
+           expr.is<VariableReference>() ||
+           (expr.is<Swizzle>() &&
+            IsTrivialExpression(*expr.as<Swizzle>().base())) ||
+           (expr.is<FieldAccess>() &&
+            IsTrivialExpression(*expr.as<FieldAccess>().base())) ||
+           (expr.is<Constructor>() &&
+            expr.as<Constructor>().arguments().size() == 1 &&
+            IsTrivialExpression(*expr.as<Constructor>().arguments().front())) ||
+           (expr.is<Constructor>() &&
+            expr.isConstantOrUniform()) ||
+           (expr.is<IndexExpression>() &&
+            expr.as<IndexExpression>().index()->is<IntLiteral>() &&
+            IsTrivialExpression(*expr.as<IndexExpression>().base()));
+}
+
+static const char* invalid_for_ES2(const ForStatement& loop,
+                                   Analysis::UnrollableLoopInfo& loopInfo) {
+    auto getConstant = [&](const std::unique_ptr<Expression>& expr, double* val) {
+        if (!expr->isCompileTimeConstant()) {
+            return false;
+        }
+        if (!expr->type().isInteger() && !expr->type().isFloat()) {
+            SkDEBUGFAIL("unexpected constant type");
+            return false;
+        }
+
+        *val = expr->type().isInteger() ? static_cast<double>(expr->getConstantInt())
+                                        : static_cast<double>(expr->getConstantFloat());
+        return true;
+    };
+
+    //
+    // init_declaration has the form: type_specifier identifier = constant_expression
+    //
+    if (!loop.initializer()) {
+        return "missing init declaration";
+    }
+    if (!loop.initializer()->is<VarDeclaration>()) {
+        return "invalid init declaration";
+    }
+    const VarDeclaration& initDecl = loop.initializer()->as<VarDeclaration>();
+    if (!initDecl.baseType().isInteger() && !initDecl.baseType().isFloat()) {
+        return "invalid type for loop index";
+    }
+    if (initDecl.arraySize() != 0) {
+        return "invalid type for loop index";
+    }
+    if (!initDecl.value()) {
+        return "missing loop index initializer";
+    }
+    if (!getConstant(initDecl.value(), &loopInfo.fStart)) {
+        return "loop index initializer must be a constant expression";
+    }
+
+    loopInfo.fIndex = &initDecl.var();
+
+    auto is_loop_index = [&](const std::unique_ptr<Expression>& expr) {
+        return expr->is<VariableReference>() &&
+               expr->as<VariableReference>().variable() == loopInfo.fIndex;
+    };
+
+    //
+    // condition has the form: loop_index relational_operator constant_expression
+    //
+    if (!loop.test()) {
+        return "missing condition";
+    }
+    if (!loop.test()->is<BinaryExpression>()) {
+        return "invalid condition";
+    }
+    const BinaryExpression& cond = loop.test()->as<BinaryExpression>();
+    if (!is_loop_index(cond.left())) {
+        return "expected loop index on left hand side of condition";
+    }
+    // relational_operator is one of: > >= < <= == or !=
+    switch (cond.getOperator()) {
+        case Token::Kind::TK_GT:
+        case Token::Kind::TK_GTEQ:
+        case Token::Kind::TK_LT:
+        case Token::Kind::TK_LTEQ:
+        case Token::Kind::TK_EQEQ:
+        case Token::Kind::TK_NEQ:
+            break;
+        default:
+            return "invalid relational operator";
+    }
+    double loopEnd = 0;
+    if (!getConstant(cond.right(), &loopEnd)) {
+        return "loop index must be compared with a constant expression";
+    }
+
+    //
+    // expression has one of the following forms:
+    //   loop_index++
+    //   loop_index--
+    //   loop_index += constant_expression
+    //   loop_index -= constant_expression
+    // The spec doesn't mention prefix increment and decrement, but there is some consensus that
+    // it's an oversight, so we allow those as well.
+    //
+    if (!loop.next()) {
+        return "missing loop expression";
+    }
+    switch (loop.next()->kind()) {
+        case Expression::Kind::kBinary: {
+            const BinaryExpression& next = loop.next()->as<BinaryExpression>();
+            if (!is_loop_index(next.left())) {
+                return "expected loop index in loop expression";
+            }
+            if (!getConstant(next.right(), &loopInfo.fDelta)) {
+                return "loop index must be modified by a constant expression";
+            }
+            switch (next.getOperator()) {
+                case Token::Kind::TK_PLUSEQ:                                      break;
+                case Token::Kind::TK_MINUSEQ: loopInfo.fDelta = -loopInfo.fDelta; break;
+                default:
+                    return "invalid operator in loop expression";
+            }
+        } break;
+        case Expression::Kind::kPrefix: {
+            const PrefixExpression& next = loop.next()->as<PrefixExpression>();
+            if (!is_loop_index(next.operand())) {
+                return "expected loop index in loop expression";
+            }
+            switch (next.getOperator()) {
+                case Token::Kind::TK_PLUSPLUS:   loopInfo.fDelta =  1; break;
+                case Token::Kind::TK_MINUSMINUS: loopInfo.fDelta = -1; break;
+                default:
+                    return "invalid operator in loop expression";
+            }
+        } break;
+        case Expression::Kind::kPostfix: {
+            const PostfixExpression& next = loop.next()->as<PostfixExpression>();
+            if (!is_loop_index(next.operand())) {
+                return "expected loop index in loop expression";
+            }
+            switch (next.getOperator()) {
+                case Token::Kind::TK_PLUSPLUS:   loopInfo.fDelta =  1; break;
+                case Token::Kind::TK_MINUSMINUS: loopInfo.fDelta = -1; break;
+                default:
+                    return "invalid operator in loop expression";
+            }
+        } break;
+        default:
+            return "invalid loop expression";
+    }
+
+    //
+    // Within the body of the loop, the loop index is not statically assigned to, nor is it used as
+    // argument to a function 'out' or 'inout' parameter.
+    //
+    if (Analysis::StatementWritesToVariable(*loop.statement(), initDecl.var())) {
+        return "loop index must not be modified within body of the loop";
+    }
+
+    // Finally, compute the iteration count, based on the bounds, and the termination operator.
+    constexpr int kMaxUnrollableLoopLength = 128;
+    loopInfo.fCount = 0;
+
+    double val = loopInfo.fStart;
+    auto evalCond = [&]() {
+        switch (cond.getOperator()) {
+            case Token::Kind::TK_GT:   return val >  loopEnd;
+            case Token::Kind::TK_GTEQ: return val >= loopEnd;
+            case Token::Kind::TK_LT:   return val <  loopEnd;
+            case Token::Kind::TK_LTEQ: return val <= loopEnd;
+            case Token::Kind::TK_EQEQ: return val == loopEnd;
+            case Token::Kind::TK_NEQ:  return val != loopEnd;
+            default: SkUNREACHABLE;
+        }
+    };
+
+    for (loopInfo.fCount = 0; loopInfo.fCount <= kMaxUnrollableLoopLength; ++loopInfo.fCount) {
+        if (!evalCond()) {
+            break;
+        }
+        val += loopInfo.fDelta;
+    }
+
+    if (loopInfo.fCount > kMaxUnrollableLoopLength) {
+        return "loop must guarantee termination in fewer iterations";
+    }
+
+    return nullptr;  // All checks pass
+}
+
+bool Analysis::ForLoopIsValidForES2(const ForStatement& loop,
+                                    Analysis::UnrollableLoopInfo* outLoopInfo,
+                                    ErrorReporter* errors) {
+    UnrollableLoopInfo ignored,
+                       *loopInfo = outLoopInfo ? outLoopInfo : &ignored;
+    if (const char* msg = invalid_for_ES2(loop, *loopInfo)) {
+        if (errors) {
+            errors->error(loop.fOffset, msg);
+        }
+        return false;
+    }
+    return true;
 }
 
 ////////////////////////////////////////////////////////////////////////////////
 // ProgramVisitor
 
-template <typename PROG, typename EXPR, typename STMT, typename ELEM>
-bool TProgramVisitor<PROG, EXPR, STMT, ELEM>::visit(PROG program) {
-    for (const auto& pe : program.elements()) {
+bool ProgramVisitor::visit(const Program& program) {
+    for (const ProgramElement* pe : program.elements()) {
         if (this->visitProgramElement(*pe)) {
             return true;
         }
@@ -457,11 +662,10 @@ bool TProgramVisitor<PROG, EXPR, STMT, ELEM>::visitExpression(EXPR e) {
     switch (e.kind()) {
         case Expression::Kind::kBoolLiteral:
         case Expression::Kind::kDefined:
-        case Expression::Kind::kExternalValue:
+        case Expression::Kind::kExternalFunctionReference:
         case Expression::Kind::kFloatLiteral:
         case Expression::Kind::kFunctionReference:
         case Expression::Kind::kIntLiteral:
-        case Expression::Kind::kNullLiteral:
         case Expression::Kind::kSetting:
         case Expression::Kind::kTypeReference:
         case Expression::Kind::kVariableReference:
@@ -585,16 +789,7 @@ bool TProgramVisitor<PROG, EXPR, STMT, ELEM>::visitStatement(STMT s) {
         }
         case Statement::Kind::kVarDeclaration: {
             auto& v = s.template as<VarDeclaration>();
-            for (const std::unique_ptr<Expression>& size : v.sizes()) {
-                if (size && this->visitExpression(*size)) {
-                    return true;
-                }
-            }
             return v.value() && this->visitExpression(*v.value());
-        }
-        case Statement::Kind::kWhile: {
-            auto& w = s.template as<WhileStatement>();
-            return this->visitExpression(*w.test()) || this->visitStatement(*w.statement());
         }
         default:
             SkUNREACHABLE;
@@ -607,21 +802,15 @@ bool TProgramVisitor<PROG, EXPR, STMT, ELEM>::visitProgramElement(ELEM pe) {
         case ProgramElement::Kind::kEnum:
         case ProgramElement::Kind::kExtension:
         case ProgramElement::Kind::kFunctionPrototype:
+        case ProgramElement::Kind::kInterfaceBlock:
         case ProgramElement::Kind::kModifiers:
         case ProgramElement::Kind::kSection:
+        case ProgramElement::Kind::kStructDefinition:
             // Leaf program elements just return false by default
             return false;
 
         case ProgramElement::Kind::kFunction:
             return this->visitStatement(*pe.template as<FunctionDefinition>().body());
-
-        case ProgramElement::Kind::kInterfaceBlock:
-            for (auto& e : pe.template as<InterfaceBlock>().sizes()) {
-                if (e && this->visitExpression(*e)) {
-                    return true;
-                }
-            }
-            return false;
 
         case ProgramElement::Kind::kGlobalVar:
             if (this->visitStatement(*pe.template as<GlobalVarDeclaration>().declaration())) {

@@ -8,7 +8,9 @@
 #ifndef GrMtlGpu_DEFINED
 #define GrMtlGpu_DEFINED
 
+#include "include/gpu/mtl/GrMtlBackendContext.h"
 #include "include/private/SkDeque.h"
+
 #include "src/gpu/GrFinishCallbacks.h"
 #include "src/gpu/GrGpu.h"
 #include "src/gpu/GrRenderTarget.h"
@@ -27,17 +29,11 @@
 class GrMtlOpsRenderPass;
 class GrMtlTexture;
 class GrSemaphore;
-struct GrMtlBackendContext;
 class GrMtlCommandBuffer;
-
-namespace SkSL {
-    class Compiler;
-}
 
 class GrMtlGpu : public GrGpu {
 public:
-    static sk_sp<GrGpu> Make(GrDirectContext*, const GrContextOptions&,
-                             id<MTLDevice>, id<MTLCommandQueue>);
+    static sk_sp<GrGpu> Make(const GrMtlBackendContext&, const GrContextOptions&, GrDirectContext*);
     ~GrMtlGpu() override;
 
     void disconnect(DisconnectType) override;
@@ -83,7 +79,11 @@ public:
     bool onCopySurface(GrSurface* dst, GrSurface* src, const SkIRect& srcRect,
                        const SkIPoint& dstPoint) override;
 
-    SkSL::Compiler* shaderCompiler() const { return fCompiler.get(); }
+#if GR_METAL_SDK_VERSION >= 230
+    id<MTLBinaryArchive> binaryArchive() const SK_API_AVAILABLE(macos(11.0), ios(14.0)) {
+        return fBinaryArchive;
+    }
+#endif
 
     void submit(GrOpsRenderPass* renderPass) override;
 
@@ -112,7 +112,7 @@ public:
 
 private:
     GrMtlGpu(GrDirectContext*, const GrContextOptions&, id<MTLDevice>,
-             id<MTLCommandQueue>, MTLFeatureSet);
+             id<MTLCommandQueue>, GrMTLHandle binaryArchive, MTLFeatureSet);
 
     void destroyResources();
 
@@ -272,16 +272,12 @@ private:
 
     sk_sp<GrMtlCommandBuffer> fCurrentCmdBuffer;
 
-    struct OutstandingCommandBuffer {
-        OutstandingCommandBuffer(sk_sp<GrMtlCommandBuffer> commandBuffer, GrFence fence)
-            : fCommandBuffer(std::move(commandBuffer))
-            , fFence(fence) {}
-        sk_sp<GrMtlCommandBuffer> fCommandBuffer;
-        GrFence fFence;
-    };
+    using OutstandingCommandBuffer = sk_sp<GrMtlCommandBuffer>;
     SkDeque fOutstandingCommandBuffers;
 
-    std::unique_ptr<SkSL::Compiler> fCompiler;
+#if GR_METAL_SDK_VERSION >= 230
+    id<MTLBinaryArchive> fBinaryArchive SK_API_AVAILABLE(macos(11.0), ios(14.0));
+#endif
 
     GrMtlResourceProvider fResourceProvider;
     GrStagingBufferManager fStagingBufferManager;

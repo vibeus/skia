@@ -184,7 +184,7 @@ static std::unique_ptr<GrFragmentProcessor> create_profile_effect(GrRecordingCon
                                                                   float* solidRadius,
                                                                   float* textureRadius) {
     float circleR = circle.width() / 2.0f;
-    if (circleR < SK_ScalarNearlyZero) {
+    if (!sk_float_isfinite(circleR) || circleR < SK_ScalarNearlyZero) {
         return nullptr;
     }
 
@@ -357,7 +357,6 @@ bool GrCircleBlurFragmentProcessor::onIsEqual(const GrFragmentProcessor& other) 
     if (textureRadius != that.textureRadius) return false;
     return true;
 }
-bool GrCircleBlurFragmentProcessor::usesExplicitReturn() const { return true; }
 GrCircleBlurFragmentProcessor::GrCircleBlurFragmentProcessor(
         const GrCircleBlurFragmentProcessor& src)
         : INHERITED(kGrCircleBlurFragmentProcessor_ClassID, src.optimizationFlags())

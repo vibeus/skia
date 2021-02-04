@@ -17,6 +17,7 @@
 #include "include/core/SkString.h"
 #include "include/core/SkTypes.h"
 #include "include/private/SkTDArray.h"
+#include "src/core/SkTLazy.h"
 
 using SkSVGColorType     = SkColor;
 using SkSVGIntegerType   = int;
@@ -25,6 +26,77 @@ using SkSVGStringType    = SkString;
 using SkSVGViewBoxType   = SkRect;
 using SkSVGTransformType = SkMatrix;
 using SkSVGPointsType    = SkTDArray<SkPoint>;
+
+enum class SkSVGPropertyState {
+    kUnspecified,
+    kInherit,
+    kValue,
+};
+
+// https://www.w3.org/TR/SVG11/intro.html#TermProperty
+template <typename T, bool kInheritable> class SkSVGProperty {
+public:
+    using ValueT = T;
+
+    SkSVGProperty() : fState(SkSVGPropertyState::kUnspecified) {}
+
+    explicit SkSVGProperty(SkSVGPropertyState state) : fState(state) {}
+
+    explicit SkSVGProperty(const T& value) : fState(SkSVGPropertyState::kValue) {
+        fValue.set(value);
+    }
+
+    explicit SkSVGProperty(T&& value) : fState(SkSVGPropertyState::kValue) {
+        fValue.set(std::move(value));
+    }
+
+    template <typename... Args>
+    void init(Args&&... args) {
+        fState = SkSVGPropertyState::kValue;
+        fValue.init(std::forward<Args>(args)...);
+    }
+
+    constexpr bool isInheritable() const { return kInheritable; }
+
+    bool isValue() const { return fState == SkSVGPropertyState::kValue; }
+
+    T* getMaybeNull() const {
+        return fValue.getMaybeNull();
+    }
+
+    void set(SkSVGPropertyState state) {
+        fState = state;
+        if (fState != SkSVGPropertyState::kValue) {
+            fValue.reset();
+        }
+    }
+
+    void set(const T& value) {
+        fState = SkSVGPropertyState::kValue;
+        fValue.set(value);
+    }
+
+    void set(T&& value) {
+        fState = SkSVGPropertyState::kValue;
+        fValue.set(std::move(value));
+    }
+
+    T* operator->() const {
+        SkASSERT(fState == SkSVGPropertyState::kValue);
+        SkASSERT(fValue.isValid());
+        return fValue.get();
+    }
+
+    T& operator*() const {
+        SkASSERT(fState == SkSVGPropertyState::kValue);
+        SkASSERT(fValue.isValid());
+        return *fValue;
+    }
+
+private:
+    SkSVGPropertyState fState;
+    SkTLazy<T> fValue;
+};
 
 class SkSVGLength {
 public:
@@ -65,19 +137,42 @@ struct SkSVGIRI {
     SkSVGStringType fIRI;
 };
 
+// https://www.w3.org/TR/SVG11/types.html#InterfaceSVGColor
+class SkSVGColor {
+public:
+    enum class Type {
+        kCurrentColor,
+        kColor,
+        kICCColor,
+    };
+
+    SkSVGColor() : fType(Type::kColor), fColor(SK_ColorBLACK) {}
+    explicit SkSVGColor(Type t) : fType(t), fColor(SK_ColorBLACK) {}
+    explicit SkSVGColor(const SkSVGColorType& c) : fType(Type::kColor), fColor(c) {}
+    bool operator==(const SkSVGColor& other) const {
+        return fType == other.fType && fColor == other.fColor;
+    }
+    bool operator!=(const SkSVGColor& other) const { return !(*this == other); }
+
+    Type type() const { return fType; }
+    const SkSVGColorType& color() const { SkASSERT(fType == Type::kColor); return fColor; }
+
+private:
+    Type fType;
+    SkSVGColorType fColor;
+};
+
 class SkSVGPaint {
 public:
     enum class Type {
         kNone,
-        kCurrentColor,
         kColor,
-        kInherit,
         kIRI,
     };
 
-    SkSVGPaint() : fType(Type::kInherit), fColor(SK_ColorBLACK) {}
+    SkSVGPaint() : fType(Type::kNone), fColor(SK_ColorBLACK) {}
     explicit SkSVGPaint(Type t) : fType(t), fColor(SK_ColorBLACK) {}
-    explicit SkSVGPaint(const SkSVGColorType& c) : fType(Type::kColor), fColor(c) {}
+    explicit SkSVGPaint(const SkSVGColor& c) : fType(Type::kColor), fColor(c) {}
     explicit SkSVGPaint(const SkString& iri)
         : fType(Type::kIRI), fColor(SK_ColorBLACK), fIRI(iri) {}
 
@@ -90,36 +185,33 @@ public:
     bool operator!=(const SkSVGPaint& other) const { return !(*this == other); }
 
     Type type() const { return fType; }
-    const SkSVGColorType& color() const { SkASSERT(fType == Type::kColor); return fColor; }
+    const SkSVGColor& color() const { SkASSERT(fType == Type::kColor); return fColor; }
     const SkString& iri() const { SkASSERT(fType == Type::kIRI); return fIRI; }
 
 private:
     Type fType;
 
     // Logical union.
-    SkSVGColorType fColor;
-    SkString       fIRI;
+    SkSVGColor fColor;
+    SkString   fIRI;
 };
 
-class SkSVGClip {
+// <funciri> | none (used for clip/mask/filter properties)
+class SkSVGFuncIRI {
 public:
     enum class Type {
         kNone,
-        kInherit,
         kIRI,
     };
 
-    SkSVGClip() : fType(Type::kNone) {}
-    explicit SkSVGClip(Type t) : fType(t)           {}
-    explicit SkSVGClip(const SkString& iri) : fType(Type::kIRI), fIRI(iri) {}
+    SkSVGFuncIRI() : fType(Type::kNone) {}
+    explicit SkSVGFuncIRI(Type t) : fType(t) {}
+    explicit SkSVGFuncIRI(SkString&& iri) : fType(Type::kIRI), fIRI(std::move(iri)) {}
 
-    SkSVGClip(const SkSVGClip&)            = default;
-    SkSVGClip& operator=(const SkSVGClip&) = default;
-
-    bool operator==(const SkSVGClip& other) const {
+    bool operator==(const SkSVGFuncIRI& other) const {
         return fType == other.fType && fIRI == other.fIRI;
     }
-    bool operator!=(const SkSVGClip& other) const { return !(*this == other); }
+    bool operator!=(const SkSVGFuncIRI& other) const { return !(*this == other); }
 
     Type type() const { return fType; }
     const SkString& iri() const { SkASSERT(fType == Type::kIRI); return fIRI; }
@@ -129,28 +221,10 @@ private:
     SkString       fIRI;
 };
 
-class SkSVGLineCap {
-public:
-    enum class Type {
-        kButt,
-        kRound,
-        kSquare,
-        kInherit,
-    };
-
-    constexpr SkSVGLineCap() : fType(Type::kInherit) {}
-    constexpr explicit SkSVGLineCap(Type t) : fType(t) {}
-
-    SkSVGLineCap(const SkSVGLineCap&)            = default;
-    SkSVGLineCap& operator=(const SkSVGLineCap&) = default;
-
-    bool operator==(const SkSVGLineCap& other) const { return fType == other.fType; }
-    bool operator!=(const SkSVGLineCap& other) const { return !(*this == other); }
-
-    Type type() const { return fType; }
-
-private:
-    Type fType;
+enum class SkSVGLineCap {
+    kButt,
+    kRound,
+    kSquare,
 };
 
 class SkSVGLineJoin {
@@ -493,35 +567,6 @@ private:
     Type fType;
 };
 
-class SkSVGFilterType {
-public:
-    enum class Type {
-        kNone,
-        kIRI,
-        kInherit,
-    };
-
-    SkSVGFilterType() : fType(Type::kNone) {}
-    explicit SkSVGFilterType(Type t) : fType(t) {}
-    explicit SkSVGFilterType(const SkString& iri) : fType(Type::kIRI), fIRI(iri) {}
-
-    bool operator==(const SkSVGFilterType& other) const {
-        return fType == other.fType && fIRI == other.fIRI;
-    }
-    bool operator!=(const SkSVGFilterType& other) const { return !(*this == other); }
-
-    const SkString& iri() const {
-        SkASSERT(fType == Type::kIRI);
-        return fIRI;
-    }
-
-    Type type() const { return fType; }
-
-private:
-    Type fType;
-    SkString fIRI;
-};
-
 class SkSVGFeInputType {
 public:
     enum class Type {
@@ -598,6 +643,17 @@ struct SkSVGFeTurbulenceType {
 
     SkSVGFeTurbulenceType() : fType(kTurbulence) {}
     explicit SkSVGFeTurbulenceType(Type type) : fType(type) {}
+};
+
+enum class SkSVGXmlSpace {
+    kDefault,
+    kPreserve,
+};
+
+enum class SkSVGColorspace {
+    kAuto,
+    kSRGB,
+    kLinearRGB,
 };
 
 #endif // SkSVGTypes_DEFINED

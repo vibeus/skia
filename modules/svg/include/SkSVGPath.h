@@ -13,7 +13,6 @@
 
 class SkSVGPath final : public SkSVGShape {
 public:
-    ~SkSVGPath() override = default;
     static sk_sp<SkSVGPath> Make() { return sk_sp<SkSVGPath>(new SkSVGPath()); }
 
     void setPath(const SkPath& path) { fPath = path; }
@@ -25,6 +24,8 @@ protected:
                 SkPathFillType) const override;
 
     SkPath onAsPath(const SkSVGRenderContext&) const override;
+
+    SkRect onObjectBoundingBox(const SkSVGRenderContext&) const override;
 
 private:
     SkSVGPath();
