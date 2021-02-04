@@ -3124,17 +3124,18 @@ if (skia_enable_tools) {
   }
 }
 
-if (is_ios && skia_use_metal && !skia_enable_flutter_defines) {
-  group("minimal_ios_mtl_skia_app") {
-    deps = [ "experimental/minimal_ios_mtl_skia_app" ]
-  }
-}
+# Not used for now, and breaks build...
+# if (is_ios && skia_use_metal && !skia_enable_flutter_defines) {
+#   group("minimal_ios_mtl_skia_app") {
+#     deps = [ "experimental/minimal_ios_mtl_skia_app" ]
+#   }
+# }
 
-if (is_ios && skia_enable_skottie && !skia_enable_flutter_defines) {
-  group("skottie_ios") {
-    deps = [ "tools/skottie_ios_app" ]
-  }
-}
+# if (is_ios && skia_enable_skottie && !skia_enable_flutter_defines) {
+#   group("skottie_ios") {
+#     deps = [ "tools/skottie_ios_app" ]
+#   }
+# }
 
 # skia_c_api_example is disabled since it breaks build and we don't use.
 # executable("skia_c_api_example") {
