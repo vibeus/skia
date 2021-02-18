@@ -179,6 +179,7 @@ public:
     }
 
     void chop(SkPath* dst, bool isLine, const SkPoint& pt) {
+        fPrevPt = pt;
         this->finishContour(false, isLine, true);
         dst->swap(fOuter);
 
@@ -359,19 +360,6 @@ void SkPathStroker::finishContour(bool close, bool currIsLine, bool isChop) {
                 fOuter.reversePathTo(fInner);
                 fOuter.close();
             }
-        } else if (isChop) {
-            // connect the end
-            fInner.getLastPt(&pt);
-            fOuter.lineTo(pt);
-            fOuter.reversePathTo(fInner);
-
-            // cap the start if needed.
-            if (!fPrevIsChop) {
-              fCapper(&fOuter, fFirstPt, -fFirstNormal, fFirstOuterPt,
-                      fPrevIsLine ? &fInner : nullptr);
-            }
-
-            fOuter.close();
         } else {    // add caps to start and end
             // cap the end
             fInner.getLastPt(&pt);
@@ -1617,48 +1605,44 @@ void SkStroke::strokePathChopped(const SkPath& src, std::vector<SkPath>* result,
                 break;
             case SkPath::kLine_Verb:
                 stroker.lineTo(pts[1], &iter);
+                lastSegment = SkPath::kLine_Verb;
+                last_point = pts[1];
                 if (++verb_count > chop_verbs) {
                     auto dst = &result->emplace_back();
                     stroker.chop(dst, true, last_point);
                     verb_count = 0;
-                    stroker.lineTo(pts[1], &iter);
                 }
-                lastSegment = SkPath::kLine_Verb;
-                last_point = pts[1];
                 break;
             case SkPath::kQuad_Verb:
                 stroker.quadTo(pts[1], pts[2]);
+                lastSegment = SkPath::kQuad_Verb;
+                last_point = pts[2];
                 if (++verb_count > chop_verbs) {
                     auto dst = &result->emplace_back();
                     stroker.chop(dst, false, last_point);
                     verb_count = 0;
-                    stroker.quadTo(pts[1], pts[2]);
                 }
-                lastSegment = SkPath::kQuad_Verb;
-                last_point = pts[2];
                 break;
             case SkPath::kConic_Verb: {
                 stroker.conicTo(pts[1], pts[2], iter.conicWeight());
+                lastSegment = SkPath::kConic_Verb;
+                last_point = pts[3];
                 if (++verb_count > chop_verbs) {
                     auto dst = &result->emplace_back();
                     stroker.chop(dst, false, last_point);
                     verb_count = 0;
-                    stroker.conicTo(pts[1], pts[2], iter.conicWeight());
                 }
-                lastSegment = SkPath::kConic_Verb;
-                last_point = pts[3];
                 break;
             } break;
             case SkPath::kCubic_Verb:
                 stroker.cubicTo(pts[1], pts[2], pts[3]);
+                lastSegment = SkPath::kCubic_Verb;
+                last_point = pts[3];
                 if (++verb_count > chop_verbs) {
                     auto dst = &result->emplace_back();
                     stroker.chop(dst, false, last_point);
                     verb_count = 0;
-                    stroker.cubicTo(pts[1], pts[2], pts[3]);
                 }
-                lastSegment = SkPath::kCubic_Verb;
-                last_point = pts[3];
                 break;
             case SkPath::kClose_Verb:
                 if (SkPaint::kButt_Cap != this->getCap()) {
