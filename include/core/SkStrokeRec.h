@@ -93,6 +93,10 @@ public:
      */
     bool applyToPath(SkPath* dst, const SkPath& src) const;
     bool applyToPathChopped(std::vector<SkPath>* result, const SkPath& src, size_t chop_verbs) const;
+    bool applyToPenPathChopped(std::vector<SkPath>* result,
+                               const SkPath& src,
+                               size_t chop_verbs,
+                               const std::vector<SkScalar>& widths) const;
 
     /**
      *  Apply these stroke parameters to a paint.

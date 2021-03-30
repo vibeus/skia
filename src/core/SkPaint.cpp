@@ -398,6 +398,41 @@ bool SkPaint::getFillPathChopped(const SkPath& src, std::vector<SkPath>* result,
     return !rec.isHairlineStyle();
 }
 
+bool SkPaint::getPenFillPathChopped(const SkPath& src,
+                                    std::vector<SkPath>* result,
+                                    size_t chop_verbs,
+                                    const std::vector<SkScalar>& widths) const {
+    if (!src.isFinite() || src.countVerbs() != widths.size()) {
+        result->clear();
+        return false;
+    }
+
+    constexpr SkRect* cullRect = nullptr;
+    constexpr SkScalar resScale = 1;
+
+    SkStrokeRec rec(*this, resScale);
+
+    const SkPath* srcPtr = &src;
+    SkPath tmpPath;
+
+    if (fPathEffect && fPathEffect->filterPath(&tmpPath, src, &rec, cullRect)) {
+        srcPtr = &tmpPath;
+    }
+
+    if (!rec.applyToPenPathChopped(result, *srcPtr, chop_verbs, widths)) {
+        result->clear();
+    }
+
+    for (auto& dst : *result) {
+        if (!dst.isFinite()) {
+            result->clear();
+            return false;
+        }
+    }
+
+    return !rec.isHairlineStyle();
+}
+
 bool SkPaint::canComputeFastBounds() const {
     if (this->getImageFilter() && !this->getImageFilter()->canComputeFastBounds()) {
         return false;

@@ -142,6 +142,29 @@ bool SkStrokeRec::applyToPathChopped(std::vector<SkPath>* result, const SkPath& 
     return true;
 }
 
+bool SkStrokeRec::applyToPenPathChopped(std::vector<SkPath>* result,
+                                        const SkPath& src,
+                                        size_t chop_verbs,
+                                        const std::vector<SkScalar>& widths) const {
+    if (fWidth <= 0) {  // hairline or fill
+        return false;
+    }
+
+    SkStroke stroker;
+    stroker.setCap((SkPaint::Cap)fCap);
+    stroker.setJoin((SkPaint::Join)fJoin);
+    stroker.setMiterLimit(fMiterLimit);
+    stroker.setWidth(widths.front() * 2);
+    stroker.setDoFill(fStrokeAndFill);
+#ifdef SK_DEBUG
+    stroker.setResScale(gDebugStrokerErrorSet ? gDebugStrokerError : fResScale);
+#else
+    stroker.setResScale(fResScale);
+#endif
+    stroker.strokePenPathChopped(src, result, chop_verbs, widths);
+    return true;
+}
+
 void SkStrokeRec::applyToPaint(SkPaint* paint) const {
     if (fWidth < 0) {  // fill
         paint->setStyle(SkPaint::kFill_Style);
