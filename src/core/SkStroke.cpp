@@ -1547,8 +1547,22 @@ void SkStroke::strokePathChopped(const SkPath& src, std::vector<SkPath>* result,
     }
 
     SkPath::Iter iter(src, false);
-    SkPoint last_point;
     size_t chop_verb_count = 0;
+    bool prev_choppable = false;
+
+    // This is just a guess: that when path is chopped, it produces connected paths with a zero move from previous
+    // end position. In some case it would mess up with PathOp. Adding a small offset seems to help.
+    constexpr SkScalar kPathOpFixer = 1.0001;
+
+#define CHOP_AT_PREV() \
+    { \
+        auto& dst = result->emplace_back(); \
+        strokePath(sub_src, &dst); \
+        sub_src.rewind(); \
+        sub_src.setFillType(src.getFillType()); \
+        sub_src.moveTo(pts[0] * kPathOpFixer); \
+        chop_verb_count = 0; \
+    }
 
     SkPath sub_src;
     sub_src.setFillType(src.getFillType());
@@ -1556,45 +1570,52 @@ void SkStroke::strokePathChopped(const SkPath& src, std::vector<SkPath>* result,
         SkPoint pts[4];
         switch (iter.next(pts)) {
             case SkPath::kMove_Verb:
-                sub_src.moveTo(pts[0]);
-                last_point = pts[0];
+                if (prev_choppable) {
+                    CHOP_AT_PREV();
+                } else {
+                    sub_src.moveTo(pts[0]);
+                }
+                prev_choppable = false;
                 break;
             case SkPath::kLine_Verb:
+                if (++chop_verb_count > chop_verbs && prev_choppable) {
+                    CHOP_AT_PREV();
+                }
                 sub_src.lineTo(pts[1]);
-                last_point = pts[1];
-                chop_verb_count++;
+                prev_choppable = true;
                 break;
             case SkPath::kQuad_Verb:
+                if (++chop_verb_count > chop_verbs && prev_choppable) {
+                    CHOP_AT_PREV();
+                }
                 sub_src.quadTo(pts[1], pts[2]);
-                last_point = pts[2];
-                chop_verb_count++;
+                prev_choppable = true;
                 break;
             case SkPath::kConic_Verb:
+                if (++chop_verb_count > chop_verbs && prev_choppable) {
+                    CHOP_AT_PREV();
+                }
                 sub_src.conicTo(pts[1], pts[2], iter.conicWeight());
-                last_point = pts[2];
-                chop_verb_count++;
+                prev_choppable = true;
                 break;
             case SkPath::kCubic_Verb:
+                if (++chop_verb_count > chop_verbs && prev_choppable) {
+                    CHOP_AT_PREV();
+                }
                 sub_src.cubicTo(pts[1], pts[2], pts[3]);
-                last_point = pts[3];
-                chop_verb_count++;
+                prev_choppable = true;
                 break;
             case SkPath::kClose_Verb:
-                sub_src.close();
+                sub_src.lineTo(pts[0]);
+                ++chop_verb_count;
+                prev_choppable = true;
                 break;
             case SkPath::kDone_Verb:
                 goto DONE;
         }
-
-        if (chop_verb_count > chop_verbs) {
-            chop_verb_count = 0;
-            auto& dst = result->emplace_back();
-            strokePath(sub_src, &dst);
-            sub_src.rewind();
-            sub_src.setFillType(src.getFillType());
-            sub_src.moveTo(last_point);
-        }
     }
+
+#undef CHOP_AT_PREV
 
 DONE:
     if (!sub_src.isEmpty()) {
