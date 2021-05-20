@@ -185,7 +185,7 @@ public:
                fOuter.isZeroLengthSincePoint(fFirstOuterPtIndexInContour);
     }
 
-private:
+protected:
     SkScalar    fRadius;
     SkScalar    fInvMiterLimit;
     SkScalar    fResScale;
@@ -1339,6 +1339,122 @@ void SkPathStroker::cubicTo(const SkPoint& pt1, const SkPoint& pt2,
 ///////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////
 
+class SkPenPathStroker : public SkPathStroker{
+public:
+    SkPenPathStroker(const SkPath& src,
+                  SkScalar radius, SkScalar miterLimit, SkPaint::Cap,
+                  SkPaint::Join, SkScalar resScale,
+                  bool canIgnoreCenter);
+
+    void lineTo(const SkPoint&, SkScalar currRadius, const SkPath::Iter* iter = nullptr);
+    void quadTo(const SkPoint&, const SkPoint&, SkScalar currRadius);
+
+private:
+    bool    preJoinTo(const SkPoint&, SkScalar currRadius, SkVector* normal, SkVector* unitNormal,
+                      bool isLine);
+};
+
+SkPenPathStroker::SkPenPathStroker(const SkPath& src,
+                             SkScalar radius, SkScalar miterLimit,
+                             SkPaint::Cap cap, SkPaint::Join join, SkScalar resScale,
+                             bool canIgnoreCenter)
+        : SkPathStroker(src, radius, miterLimit, cap, join, resScale, canIgnoreCenter) {
+}
+
+void SkPenPathStroker::lineTo(const SkPoint& currPt, SkScalar currRadius, const SkPath::Iter* iter) {
+    bool teenyLine = SkPointPriv::EqualsWithinTolerance(fPrevPt, currPt, SK_ScalarNearlyZero * fInvResScale);
+    if (SkStrokerPriv::CapFactory(SkPaint::kButt_Cap) == fCapper && teenyLine) {
+        return;
+    }
+    if (teenyLine && (fJoinCompleted || (iter && has_valid_tangent(iter)))) {
+        return;
+    }
+    SkVector    normal, unitNormal;
+
+    if (!this->preJoinTo(currPt, fRadius, &normal, &unitNormal, true)) {
+        return;
+    }
+    this->line_to(currPt, unitNormal * currRadius);
+    fRadius = currRadius;
+    this->postJoinTo(currPt, unitNormal * currRadius, unitNormal);
+}
+
+bool SkPenPathStroker::preJoinTo(const SkPoint& currPt, SkScalar currRadius, SkVector* normal,
+                              SkVector* unitNormal, bool currIsLine) {
+    SkASSERT(fSegmentCount >= 0);
+
+    SkScalar    prevX = fPrevPt.fX;
+    SkScalar    prevY = fPrevPt.fY;
+
+    if (!set_normal_unitnormal(fPrevPt, currPt, fResScale, currRadius, normal, unitNormal)) {
+        if (SkStrokerPriv::CapFactory(SkPaint::kButt_Cap) == fCapper) {
+            return false;
+        }
+        /* Square caps and round caps draw even if the segment length is zero.
+           Since the zero length segment has no direction, set the orientation
+           to upright as the default orientation */
+        normal->set(currRadius, 0);
+        unitNormal->set(1, 0);
+    }
+
+    if (fSegmentCount == 0) {
+        fFirstNormal = *normal;
+        fFirstUnitNormal = *unitNormal;
+        fFirstOuterPt.set(prevX + normal->fX, prevY + normal->fY);
+
+        fOuter.moveTo(fFirstOuterPt.fX, fFirstOuterPt.fY);
+        fInner.moveTo(prevX - normal->fX, prevY - normal->fY);
+    } else {    // we have a previous segment
+        fJoiner(&fOuter, &fInner, fPrevUnitNormal, fPrevPt, *unitNormal,
+                fRadius, fInvMiterLimit, fPrevIsLine, currIsLine);
+    }
+    fPrevIsLine = currIsLine;
+    return true;
+}
+
+void SkPenPathStroker::quadTo(const SkPoint& pt1, const SkPoint& pt2, SkScalar currRadius) {
+    fRadius = currRadius;
+    const SkPoint quad[3] = { fPrevPt, pt1, pt2 };
+    SkPoint reduction;
+    ReductionType reductionType = CheckQuadLinear(quad, &reduction);
+    if (kPoint_ReductionType == reductionType) {
+        /* If the stroke consists of a moveTo followed by a degenerate curve, treat it
+            as if it were followed by a zero-length line. Lines without length
+            can have square and round end caps. */
+        this->lineTo(pt2, currRadius);
+        return;
+    }
+    if (kLine_ReductionType == reductionType) {
+        this->lineTo(pt2, currRadius);
+        return;
+    }
+    if (kDegenerate_ReductionType == reductionType) {
+        this->lineTo(reduction, currRadius);
+        SkStrokerPriv::JoinProc saveJoiner = fJoiner;
+        fJoiner = SkStrokerPriv::JoinFactory(SkPaint::kRound_Join);
+        this->lineTo(pt2, currRadius);
+        fJoiner = saveJoiner;
+        return;
+    }
+    SkASSERT(kQuad_ReductionType == reductionType);
+    SkVector normalAB, unitAB, normalBC, unitBC;
+    if (!this->preJoinTo(pt1, currRadius, &normalAB, &unitAB, false)) {
+        this->lineTo(pt2, currRadius);
+        return;
+    }
+    SkQuadConstruct quadPts;
+    this->init(kOuter_StrokeType, &quadPts, 0, 1);
+    (void) this->quadStroke(quad, &quadPts);
+    this->init(kInner_StrokeType, &quadPts, 0, 1);
+    (void) this->quadStroke(quad, &quadPts);
+    this->setQuadEndNormal(quad, normalAB, unitAB, &normalBC, &unitBC);
+
+    this->postJoinTo(pt2, normalBC, unitBC);
+}
+
+///////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////
+
 #include "src/core/SkPaintDefaults.h"
 
 SkStroke::SkStroke() {
@@ -1622,6 +1738,168 @@ DONE:
     if (!sub_src.isEmpty()) {
         auto& dst = result->emplace_back();
         strokePath(sub_src, &dst);
+    }
+}
+
+// This is a clone of strokePath, with special chopping logic with dynamic width.
+void SkStroke::strokePenPathChopped(const SkPath& src, std::vector<SkPath>* result,
+                                 size_t chop_verbs, const std::vector<SkScalar>& widths) const {
+    SkASSERT(result);
+    SkASSERT(chop_verbs >= 2);
+
+    SkScalar radius = SkScalarHalf(fWidth);
+    if (radius <= 0) {
+        return;
+    }
+
+    // If src is really a rect, call our specialty strokeRect() method
+    {
+        SkRect rect;
+        bool isClosed = false;
+        SkPathDirection dir;
+        if (src.isRect(&rect, &isClosed, &dir) && isClosed) {
+            auto dst = &result->emplace_back();
+            this->strokeRect(rect, dst, dir);
+            // our answer should preserve the inverseness of the src
+            if (src.isInverseFillType()) {
+                SkASSERT(!dst->isInverseFillType());
+                dst->toggleInverseFillType();
+            }
+            return;
+        }
+    }
+
+    // We can always ignore centers for stroke and fill convex line-only paths
+    // TODO: remove the line-only restriction
+    bool ignoreCenter = fDoFill && (src.getSegmentMasks() == SkPath::kLine_SegmentMask) &&
+                        src.isLastContourClosed() && src.isConvex();
+
+    // For now chopped paths must ignore center.
+    SkASSERT(!fDoFill || ignoreCenter);
+
+    std::vector<SkScalar>::const_iterator widthIter = widths.begin();
+    SkPenPathStroker   stroker(src, radius, fMiterLimit, this->getCap(), this->getJoin(),
+                            fResScale, ignoreCenter);
+    SkPath::Iter    iter(src, false);
+    SkPath::Verb    lastSegment = SkPath::kMove_Verb;
+    size_t verb_count = 0;
+    SkPoint last_point;
+    for (;;) {
+        SkPoint  pts[4];
+        switch (iter.next(pts)) {
+            case SkPath::kMove_Verb:
+                stroker.moveTo(pts[0]);
+                last_point = pts[0];
+                break;
+            case SkPath::kLine_Verb:
+                stroker.lineTo(pts[1], *widthIter, &iter);
+                lastSegment = SkPath::kLine_Verb;
+                last_point = pts[1];
+                if (++verb_count > chop_verbs) {
+                    auto dst = &result->emplace_back();
+                    stroker.chop(dst, true, last_point);
+                    verb_count = 0;
+                }
+                break;
+            case SkPath::kQuad_Verb:
+                stroker.quadTo(pts[1], pts[2], *widthIter);
+                lastSegment = SkPath::kQuad_Verb;
+                last_point = pts[2];
+                if (++verb_count > chop_verbs) {
+                    auto dst = &result->emplace_back();
+                    stroker.chop(dst, false, last_point);
+                    verb_count = 0;
+                }
+                break;
+            case SkPath::kConic_Verb: {
+                stroker.conicTo(pts[1], pts[2], iter.conicWeight());
+                lastSegment = SkPath::kConic_Verb;
+                last_point = pts[3];
+                if (++verb_count > chop_verbs) {
+                    auto dst = &result->emplace_back();
+                    stroker.chop(dst, false, last_point);
+                    verb_count = 0;
+                }
+                break;
+            } break;
+            case SkPath::kCubic_Verb:
+                stroker.cubicTo(pts[1], pts[2], pts[3]);
+                lastSegment = SkPath::kCubic_Verb;
+                last_point = pts[3];
+                if (++verb_count > chop_verbs) {
+                    auto dst = &result->emplace_back();
+                    stroker.chop(dst, false, last_point);
+                    verb_count = 0;
+                }
+                break;
+            case SkPath::kClose_Verb:
+                if (SkPaint::kButt_Cap != this->getCap()) {
+                    /* If the stroke consists of a moveTo followed by a close, treat it
+                       as if it were followed by a zero-length line. Lines without length
+                       can have square and round end caps. */
+                    if (stroker.hasOnlyMoveTo()) {
+                        stroker.lineTo(stroker.moveToPt(), *widthIter);
+                        goto ZERO_LENGTH;
+                    }
+                    /* If the stroke consists of a moveTo followed by one or more zero-length
+                       verbs, then followed by a close, treat is as if it were followed by a
+                       zero-length line. Lines without length can have square & round end caps. */
+                    if (stroker.isCurrentContourEmpty()) {
+                ZERO_LENGTH:
+                        lastSegment = SkPath::kLine_Verb;
+                        break;
+                    }
+                }
+                stroker.close(lastSegment == SkPath::kLine_Verb);
+
+                break;
+            case SkPath::kDone_Verb:
+                goto DONE;
+        }
+        widthIter++;
+    }
+DONE:
+    {
+        auto dst = &result->emplace_back();
+        stroker.done(dst, lastSegment == SkPath::kLine_Verb);
+    }
+
+    if (fDoFill && !ignoreCenter) {
+#if 0
+        if (SkPathPriv::CheapIsFirstDirection(src, SkPathPriv::kCCW_FirstDirection)) {
+            dst->reverseAddPath(src);
+        } else {
+            dst->addPath(src);
+        }
+#endif
+    } else {
+        //  Seems like we can assume that a 2-point src would always result in
+        //  a convex stroke, but testing has proved otherwise.
+        //  TODO: fix the stroker to make this assumption true (without making
+        //  it slower that the work that will be done in computeConvexity())
+#if 0
+        // this test results in a non-convex stroke :(
+        static void test(SkCanvas* canvas) {
+            SkPoint pts[] = { 146.333328,  192.333328, 300.333344, 293.333344 };
+            SkPaint paint;
+            paint.setStrokeWidth(7);
+            paint.setStrokeCap(SkPaint::kRound_Cap);
+            canvas->drawLine(pts[0].fX, pts[0].fY, pts[1].fX, pts[1].fY, paint);
+        }
+#endif
+#if 0
+        if (2 == src.countPoints()) {
+            dst->setIsConvex(true);
+        }
+#endif
+    }
+
+    // our answer should preserve the inverseness of the src
+    if (src.isInverseFillType()) {
+        for (auto& dst : *result) {
+            SkASSERT(!dst.isInverseFillType());
+            dst.toggleInverseFillType();
+        }
     }
 }
 

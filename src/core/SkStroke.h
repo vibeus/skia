@@ -68,6 +68,8 @@ public:
     void    strokePath(const SkPath& path, SkPath*) const;
     void    strokePathChopped(const SkPath& path, std::vector<SkPath>* result,
                               size_t chop_verbs) const;
+    void    strokePenPathChopped(const SkPath& path, std::vector<SkPath>* result,
+                                 size_t chop_verbs, const std::vector<SkScalar>& widths) const;
 
     ////////////////////////////////////////////////////////////////
 

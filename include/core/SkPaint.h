@@ -438,6 +438,11 @@ public:
 
     bool getFillPathChopped(const SkPath& src, std::vector<SkPath>* result, size_t chop_verbs) const;
 
+    bool getPenFillPathChopped(const SkPath& src,
+                               std::vector<SkPath>* result,
+                               size_t chop_verbs,
+                               const std::vector<SkScalar>& widths) const;
+
     /** Returns optional colors used when filling a path, such as a gradient.
 
         Does not alter SkShader SkRefCnt.
