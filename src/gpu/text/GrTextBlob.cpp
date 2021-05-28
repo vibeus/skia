@@ -1677,7 +1677,11 @@ void GrBagOfBytes::setupBytesAndCapacity(char* bytes, int size) {
 void GrBagOfBytes::needMoreBytes(int requestedSize, int alignment) {
     int nextBlockSize = fFibProgression.nextBlockSize();
     const int size = PlatformMinimumSizeWithOverhead(
-            std::max(requestedSize, nextBlockSize), alignof(max_align_t));
+            std::max(requestedSize, nextBlockSize), alignof(max_align_t))
+#ifdef __EMSCRIPTEN__
+        + 8
+#endif
+        ;
     char* const bytes = new char[size];
     // fEndByte is changed by setupBytesAndCapacity. Remember it to link back to.
     char* const previousBlock = fEndByte;
