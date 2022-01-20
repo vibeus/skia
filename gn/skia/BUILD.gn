@@ -105,7 +105,8 @@ config("default") {
       "/bigobj",  # Some of our files are bigger than the regular limits.
       "/utf-8",  # Set Source and Executable character sets to UTF-8.
     ]
-    cflags_cc += [ "/std:c++17" ]
+    # Vibe uses c++20
+    cflags_cc += [ "/std:c++20" ]
     defines += [
       "_CRT_SECURE_NO_WARNINGS",  # Disables warnings about sscanf().
       "_HAS_EXCEPTIONS=0",  # Disables exceptions in MSVC STL.
@@ -143,8 +144,9 @@ config("default") {
       "-fPIC",
       "-fvisibility=hidden",
     ]
+    # Vibe uses c++20
     cflags_cc += [
-      "-std=c++17",
+      "-std=c++20",
       "-fvisibility-inlines-hidden",
     ]
   }
