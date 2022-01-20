@@ -19,6 +19,8 @@ declare_args() {
   malloc = ""
   werror = false
   xcode_sysroot = ""
+
+  skia_use_cpp20 = true
 }
 
 if (is_ios && xcode_sysroot == "") {
