@@ -3866,10 +3866,12 @@ void GrGLCaps::applyDriverCorrectnessWorkarounds(const GrGLContextInfo& ctxInfo,
         }
     }
 
+    /*
     // http://skbug.com/12081
     if (GR_IS_GR_WEBGL(ctxInfo.standard())) {
         fDisallowDynamicMSAA = true;
     }
+    */
 
     // Below we are aggressive about turning off all mapping/transfer functionality together. This
     // could be finer grained if code paths and tests were adjusted to check more specific caps.
