@@ -31,6 +31,8 @@ public:
     void setHasAttachedToTexture() { fHasAttachedToTexture = true; }
     bool hasAttachedToTexture() const { return fHasAttachedToTexture; }
 
+    bool downloadData(void* dst, size_t offset, size_t size) override;
+
 protected:
     GrGLBuffer(GrGLGpu*,
                size_t size,

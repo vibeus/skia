@@ -88,6 +88,7 @@ public:
      */
     bool updateData(const void* src, size_t offset, size_t size, bool preserve);
 
+    virtual bool downloadData(void* dst, size_t offset, size_t size) { return false; }
     GrGpuBufferType intendedType() const { return fIntendedType; }
 
 protected:

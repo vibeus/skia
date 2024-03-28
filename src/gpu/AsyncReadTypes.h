@@ -147,11 +147,15 @@ public:
                            size_t rowBytes,
                            TClientMappedBufferManager<T, IDType>* manager) {
         const void* mappedData = result.fTransferBuffer->map();
+
+        size_t size = rowBytes * dimensions.height();
+        d = SkData::MakeUninitialized(size);
+        result.fTransferBuffer->downloadData(d->writable_data(), 0, size);
+
         if (!mappedData) {
             return false;
         }
         if (result.fPixelConverter) {
-            size_t size = rowBytes*dimensions.height();
             sk_sp<SkData> data = SkData::MakeUninitialized(size);
             result.fPixelConverter(data->writable_data(), mappedData);
             this->addCpuPlane(std::move(data), rowBytes);

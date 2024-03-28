@@ -107,6 +107,7 @@ public:
         GrGLFunction<GrGLBlitFramebufferFn> fBlitFramebuffer;
         GrGLFunction<GrGLBufferDataFn> fBufferData;
         GrGLFunction<GrGLBufferSubDataFn> fBufferSubData;
+        GrGLFunction<GrGLGetBufferSubDataFn> fGetBufferSubData;
         GrGLFunction<GrGLCheckFramebufferStatusFn> fCheckFramebufferStatus;
         GrGLFunction<GrGLClearFn> fClear;
         GrGLFunction<GrGLClearColorFn> fClearColor;

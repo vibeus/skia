@@ -557,6 +557,9 @@ void GrGLCaps::init(const GrContextOptions& contextOptions,
     } else if (GR_IS_GR_WEBGL(standard)) {
         // explicitly removed https://www.khronos.org/registry/webgl/specs/2.0/#5.14
         fMapBufferFlags = kNone_MapFlags;
+        fTransferFromBufferToTextureSupport = true;
+        fTransferFromSurfaceToBufferSupport = true;
+        fTransferBufferType = TransferBufferType::kARB_PBO;
     }
 
     // Buffers have more restrictions in WebGL than GLES. For example,

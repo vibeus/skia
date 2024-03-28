@@ -37,6 +37,10 @@ using GrGLBlendFuncFn = GrGLvoid GR_GL_FUNCTION_TYPE(GrGLenum sfactor, GrGLenum 
 using GrGLBlitFramebufferFn = GrGLvoid GR_GL_FUNCTION_TYPE(GrGLint srcX0, GrGLint srcY0, GrGLint srcX1, GrGLint srcY1, GrGLint dstX0, GrGLint dstY0, GrGLint dstX1, GrGLint dstY1, GrGLbitfield mask, GrGLenum filter);
 using GrGLBufferDataFn = GrGLvoid GR_GL_FUNCTION_TYPE(GrGLenum target, GrGLsizeiptr size, const GrGLvoid* data, GrGLenum usage);
 using GrGLBufferSubDataFn = GrGLvoid GR_GL_FUNCTION_TYPE(GrGLenum target, GrGLintptr offset, GrGLsizeiptr size, const GrGLvoid* data);
+using GrGLGetBufferSubDataFn = GrGLvoid GR_GL_FUNCTION_TYPE(GrGLenum target,
+                                                         GrGLintptr offset,
+                                                         GrGLsizeiptr size,
+                                                         GrGLvoid* data);
 using GrGLCheckFramebufferStatusFn = GrGLenum GR_GL_FUNCTION_TYPE(GrGLenum target);
 using GrGLClearFn = GrGLvoid GR_GL_FUNCTION_TYPE(GrGLbitfield mask);
 using GrGLClearColorFn = GrGLvoid GR_GL_FUNCTION_TYPE(GrGLclampf red, GrGLclampf green, GrGLclampf blue, GrGLclampf alpha);

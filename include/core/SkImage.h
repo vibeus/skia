@@ -13,6 +13,7 @@
 #include "include/core/SkRect.h"
 #include "include/core/SkRefCnt.h"
 #include "include/core/SkSize.h"
+#include "include/core/SkData.h"
 #include "include/private/base/SkAPI.h"
 
 #include <cstddef>
@@ -560,6 +561,8 @@ public:
         virtual int count() const = 0;
         virtual const void* data(int i) const = 0;
         virtual size_t rowBytes(int i) const = 0;
+
+        sk_sp<SkData> d;
 
     protected:
         AsyncReadResult() = default;
