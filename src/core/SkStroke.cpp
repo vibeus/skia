@@ -1549,6 +1549,89 @@ void SkStroke::strokePath(const SkPath& src, SkPathBuilder* dst) const {
     }
 }
 
+void SkStroke::strokePathChopped(const SkPath& src, std::vector<SkPathBuilder>* result,
+                                 size_t chop_verbs) const {
+    SkASSERT(result);
+    SkASSERT(chop_verbs >= 2);
+
+    if (chop_verbs < 2) {
+        chop_verbs = 2;
+    }
+
+    SkPath::Iter iter(src, false);
+    size_t chop_verb_count = 0;
+    bool prev_choppable = false;
+
+    // This is just a guess: that when path is chopped, it produces connected paths with a zero move from previous
+    // end position. In some case it would mess up with PathOp. Adding a small offset seems to help.
+    constexpr SkScalar kPathOpFixer = 1.0001;
+
+#define CHOP_AT_PREV() \
+    { \
+        auto& dst = result->emplace_back(); \
+        strokePath(sub_src.detach(), &dst); \
+        sub_src.setFillType(src.getFillType()); \
+        sub_src.moveTo(pts[0] * kPathOpFixer); \
+        chop_verb_count = 0; \
+    }
+
+    SkPathBuilder sub_src;
+    sub_src.setFillType(src.getFillType());
+    while (auto rec = iter.next()) {
+        SkSpan<const SkPoint> pts = rec->fPoints;
+        switch (rec->fVerb) {
+            case SkPathVerb::kMove:
+                if (prev_choppable) {
+                    CHOP_AT_PREV();
+                } else {
+                    sub_src.moveTo(pts[0]);
+                }
+                prev_choppable = false;
+                break;
+            case SkPathVerb::kLine:
+                if (++chop_verb_count > chop_verbs && prev_choppable) {
+                    CHOP_AT_PREV();
+                }
+                sub_src.lineTo(pts[1]);
+                prev_choppable = true;
+                break;
+            case SkPathVerb::kQuad:
+                if (++chop_verb_count > chop_verbs && prev_choppable) {
+                    CHOP_AT_PREV();
+                }
+                sub_src.quadTo(pts[1], pts[2]);
+                prev_choppable = true;
+                break;
+            case SkPathVerb::kConic:
+                if (++chop_verb_count > chop_verbs && prev_choppable) {
+                    CHOP_AT_PREV();
+                }
+                sub_src.conicTo(pts[1], pts[2], rec->conicWeight());
+                prev_choppable = true;
+                break;
+            case SkPathVerb::kCubic:
+                if (++chop_verb_count > chop_verbs && prev_choppable) {
+                    CHOP_AT_PREV();
+                }
+                sub_src.cubicTo(pts[1], pts[2], pts[3]);
+                prev_choppable = true;
+                break;
+            case SkPathVerb::kClose:
+                sub_src.lineTo(pts[0]);
+                ++chop_verb_count;
+                prev_choppable = true;
+                break;
+        }
+    }
+
+#undef CHOP_AT_PREV
+
+    if (!sub_src.isEmpty()) {
+        auto& dst = result->emplace_back();
+        strokePath(sub_src.detach(), &dst);
+    }
+}
+
 static SkPathDirection reverse_direction(SkPathDirection dir) {
     static const SkPathDirection gOpposite[] = { SkPathDirection::kCCW, SkPathDirection::kCW };
     return gOpposite[(int)dir];
