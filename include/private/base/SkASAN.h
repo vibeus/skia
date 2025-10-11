@@ -10,12 +10,15 @@
 
 #include <cstddef>
 
+// Vibe: disable SK_SANITIZE_ADDRESS because pre-built Skia does not enable ASAN.
+// If this is enabled during canvas build, when canvas enable asan, ODR-violation might
+// happen. (E.g. sizeof(SkPathBuilder) is 128 in pre-built skia but 156 in canvas).
 #ifdef __SANITIZE_ADDRESS__
-    #define SK_SANITIZE_ADDRESS 1
+    // #define SK_SANITIZE_ADDRESS 1
 #endif
 #if !defined(SK_SANITIZE_ADDRESS) && defined(__has_feature)
     #if __has_feature(address_sanitizer)
-        #define SK_SANITIZE_ADDRESS 1
+        // #define SK_SANITIZE_ADDRESS 1
     #endif
 #endif
 
