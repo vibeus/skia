@@ -226,6 +226,7 @@ private:
     int         fFirstOuterPtIndexInContour;
     int         fSegmentCount;
     bool        fPrevIsLine;
+    bool        fPrevIsChop = false;
     bool        fCanIgnoreCenter;
 
     SkStrokerPriv::CapProc  fCapper;
@@ -1568,18 +1569,18 @@ void SkStroke::strokePathChopped(const SkPath& src, std::vector<SkPath>* result,
     // end position. In some case it would mess up with PathOp. Adding a small offset seems to help.
     constexpr SkScalar kPathOpFixer = 1.0001;
 
+    SkPathBuilder sub_src;
+    sub_src.setFillType(src.getFillType());
 #define CHOP_AT_PREV() \
     { \
-        auto& dst = result->emplace_back(); \
-        strokePath(sub_src, &dst); \
-        sub_src.rewind(); \
+        SkPathBuilder chop_dst; \
+        strokePath(sub_src.detach(), &chop_dst); \
+        result->push_back(chop_dst.detach()); \
         sub_src.setFillType(src.getFillType()); \
         sub_src.moveTo(pts[0] * kPathOpFixer); \
         chop_verb_count = 0; \
     }
 
-    SkPath sub_src;
-    sub_src.setFillType(src.getFillType());
     for(;;) {
         SkPoint pts[4];
         switch (iter.next(pts)) {
@@ -1632,9 +1633,10 @@ void SkStroke::strokePathChopped(const SkPath& src, std::vector<SkPath>* result,
 #undef CHOP_AT_PREV
 
 DONE:
-    if (!sub_src.isEmpty()) {
-        auto& dst = result->emplace_back();
-        strokePath(sub_src, &dst);
+    if (!sub_src.snapshot().isEmpty()) {
+        SkPathBuilder dst;
+        strokePath(sub_src.detach(), &dst);
+        result->push_back(dst.detach());
     }
 }
 
